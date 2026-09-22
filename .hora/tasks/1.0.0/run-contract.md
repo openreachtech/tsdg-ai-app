@@ -1,5 +1,5 @@
 # #run-contract  The shared entry every AI service is reached through
-<!-- spec: run-contract @ sha256:4984dfe04a76eb4d6f8853e1fece463e2fc13db0ba9d36b0ff87796954615049 -->
+<!-- spec: run-contract @ sha256:3cd0ae67c7c164c17c815c0de40cd1bf486a55e5051ed7d5d605582899c0ed22 -->
 <!-- repositories: backend -->
 
 Constraint: every later service's POST extends what this builds, so the base renderer and
@@ -18,8 +18,8 @@ Constraint: a model call is never retried automatically (#scope, permanently out
             idempotency key
 
 ## Spec gate
-- [ ] 1. Draft or confirm the specification
-- [ ] 2. Verify the use cases can be met
+- [x] 1. Draft or confirm the specification  <!-- skills: hoc-requirement-definition; digests: none taken — an interactive checkpoint starts no agent, and the main session read the skill in full --> <!-- wall-time: ~900s -->
+- [x] 2. Verify the use cases can be met  <!-- skills: none matched — this checkpoint's delegate covers the shared UI/UX project context, a frontend surface this feature has none of; digests: none --> <!-- wall-time: ~1100s -->
 
 ## Backend gate
 - [ ] 3. DB and API schemas

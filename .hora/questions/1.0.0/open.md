@@ -51,3 +51,22 @@ nothing in `specs/` recorded that the two cover different runs.
       stating both engines, that the split is deliberate, and the risk it leaves open:
       `text('medium')`, `json` and `datetime(3)` behave differently on the two, so a type
       error can pass the suite and appear only on the engine that runs live.
+
+---
+
+## Q4 · undefined-detail · blocking: no
+
+**Raised at** checkpoint 1 of #run-contract, 2026-09-22.
+<!-- spec: run-contract -->
+
+Of `#run-contract`'s ten acceptance criteria, only one named an HTTP status — `409`, for a
+repeated idempotency key carrying a different body. The other nine said "refused" and no
+more, so the contract the client system implements against did not say which status any
+refusal carries, and that side has to branch on it.
+
+- [x] resolved
+      A `How a request is refused` table was added to `.hora/contracts/1.0.0/client-api.md`
+      in this session, deriving one status per refusal from the criteria that state it:
+      401, 403, 404, 409 and 422. It also states that every one of them happens before a run
+      is created, so a run that was accepted and later failed is not among them. Nothing in
+      `specs/` changed — the statuses follow from criteria already approved.
