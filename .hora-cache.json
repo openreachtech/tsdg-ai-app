@@ -1,0 +1,12 @@
+{
+  "cacheDir": ".hora-cache",
+  "units": {
+    "backend": {
+      "cwd": "tsdg-ai-backend",
+      "command": "npm test",
+      "extras": [
+        ".env*"
+      ]
+    }
+  }
+}
