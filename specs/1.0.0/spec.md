@@ -217,6 +217,7 @@ Baseline: not applicable — no implementation of this product exists
 | Run time limit | 300 seconds. A run still going past it ends as failed |
 | Readings | each medium is read 3 times, and a value is settled by absolute majority across those readings |
 | Security level | high. An asset photo is treated as personal data: it may carry a face, a plate or a document in frame, and at the moment the owner presses the button the posting is not yet public. The stub is the default in every environment, and turning a real provider on is a recorded decision — its date, its environment and its model |
+| Test engine | the automated suite runs on SQLite, which is what the boilerplate fixes `development` to; MariaDB is what the manual-verification stack brings up and what runs live. The two are deliberate, and the gap is a known risk: `text('medium')`, `json` and `datetime(3)` behave differently on the two engines, so a type error can pass the suite and appear only on the engine that runs live |
 | External dependencies | the AI providers, and the client's own file storage. Either can be slow or unavailable; no model call is retried automatically, and the caller resubmits under a new idempotency key |
 | Logging | ids, latency, token counts, reason codes and error codes only — no image, document or question content anywhere |
 | Authentication | every request is signed, and every route runs the filter. Nothing is reachable without it: no public route, no health check, no guest allow-list. Adding one later is a recorded decision, not a habit |
