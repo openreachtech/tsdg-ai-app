@@ -1,9 +1,9 @@
 {
-  "name": "TODO: fulfill here ❌️",
+  "name": "tsdg-ai-app",
   "version": "0.0.0",
   "private": true,
   "license": "Apache-2.0",
-  "description": "TODO: fulfill here",
+  "description": "Spec and Hora Kit for tsdg-ai-backend, the AI service called by Taisandaugia over REST.",
   "type": "module",
   "scripts": {
     "hora:init": "hora-core install && hora-skills-ort-core install && hora-skills-ort-renchan install && hora-skills-ort-furo install && hora-skills-ort-support install && node kit/scripts/equip-own-skills.mjs",
