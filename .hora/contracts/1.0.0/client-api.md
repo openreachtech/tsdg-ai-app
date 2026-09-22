@@ -99,6 +99,24 @@ screen.
 The run's `statusName` after the request, which is its terminal state where it had already
 reached one.
 
+## How a request is refused
+
+Every refusal below happens **before a run is created**. A run that was accepted and later
+failed is a `200` carrying a `failure` — the reason codes at the end of this file — not one
+of these.
+
+| Status | When |
+|---|---|
+| `401` | no signature, a signature that does not verify, or a timestamp more than 300 seconds from the server's clock |
+| `403` | the signature verified, but that client's record is switched off |
+| `404` | the run named by the path belongs to another client. Deliberately not `403`: a refusal that admitted the run existed would confirm another client's data |
+| `409` | the same idempotency key with a different body. The first run is unchanged |
+| `422` | a required field is missing, or a field's value is not one the schema accepts |
+
+`401` and `403` are told apart on purpose: the first says the caller is not who it claims,
+the second says it is and may not. A caller that cannot tell them apart retries a rotation
+failure forever against a client somebody switched off.
+
 ## Failure reason codes
 
 A failure is a code and its parameters. **This service returns no display wording**; the
