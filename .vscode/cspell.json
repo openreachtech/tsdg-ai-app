@@ -1,0 +1,49 @@
+{
+  "words": [
+    "openreach",
+    "openreachtech",
+    "chiho",
+    "furo",
+    "hora",
+    "mentsu",
+    "renchan",
+
+    "denylist",
+    "gitlink",
+    "kebab",
+    "semver",
+    "vendoring",
+
+    "entrancy",
+    "frontends",
+    "frontmatter",
+    "healthcheck",
+    "meetable",
+    "subfolders",
+    "underivable",
+    "unmeetable",
+    "usecase",
+    "usecases",
+    "worktree",
+    "worktrees",
+
+    "bullmq",
+    "elasticsearch",
+    "graphql",
+    "ioredis",
+    "mariadb",
+    "minio",
+    "nuxt",
+    "qdrant",
+    "sequelize",
+    "zod",
+
+    "ehthumbs",
+    "encryptable",
+
+    "esac",
+    "softprops",
+
+    "myproject"
+  ]
+}
