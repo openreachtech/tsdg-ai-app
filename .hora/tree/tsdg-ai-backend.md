@@ -121,7 +121,14 @@ Checkpoint 17 is what builds it.
 directs that they be filled to match the compose file; `config.cjs` fixes `development` to
 SQLite, so nothing local reads them. They are filled anyway, so the two never disagree once
 an environment does read them — but a local `db:refresh` builds a SQLite file, not MariaDB.
-**Which store development should run on is a decision nobody has made yet.**
+
+**Examined and found consistent, not contradictory.** The two statements cover different
+runs: the automated suite executes on SQLite under `NODE_ENV=development`, which is the
+boilerplate's default and what the test convention assumes, while the MariaDB the spec
+declares is what `docker.sh` brings up for manual verification. **What this leaves open is
+a real risk rather than an inconsistency:** `text('medium')`, `json` and `datetime(3)`
+behave differently on the two engines, so a type error can pass the suite and surface only
+on the engine that runs live.
 
 **2. `pm2.config.cjs` declares one process; the spec declares two.** The spec's server table
 names a REST API and a worker. The boilerplate's pm2 config knows only the first.
