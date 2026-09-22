@@ -249,6 +249,10 @@ per-request context that resolves a client from its signature, the base renderer
 service's POST extends, and the run record itself. It declares no route of its own —
 a concrete route belongs to the service that answers it.
 
+There is no operation for rotating a client's secret this version. A rotation is a direct
+database write, made by an operator on the machine, and the window in which both secrets
+are accepted is what keeps it from being an outage.
+
 ### Data model
 
 #### `api_clients`
@@ -323,10 +327,10 @@ returns the same run, and a second run for it cannot exist.
 - a request whose signature is the hex HMAC-SHA256 of `timestamp + "." + rawBody` under the client's secret is accepted; one whose body differs from the signed body by a single byte is refused and writes no run
 - a request whose timestamp is more than 300 seconds from the server's clock, in either direction, is refused
 - a request carrying no idempotency key is refused
-- the same idempotency key with the same body returns the run created the first time, and no second run exists for it
+- the same idempotency key with the same body returns the run created the first time, answering in the same shape and carrying that run's status as it now stands, and no second run exists for it
 - the same idempotency key with a different body is refused with `409`, and the first run is unchanged
 - a request missing any of the four required common fields — the caller's object key, the subject label, the correlation id, the callback URL — is refused
-- an accepted request answers with the run key, the run kind, a status of queued and the accepted time, and nothing else
+- a newly accepted request answers with the run key, the run kind, a status of queued and the accepted time, and nothing else
 - while a rotation is under way, a signature computed with either of the client's two valid secrets is accepted
 - a request carrying no signature, or one signed with a secret that is not this client's, is refused before any handler runs and writes nothing
 - a request from a client whose record is switched off is refused, and creates no run
