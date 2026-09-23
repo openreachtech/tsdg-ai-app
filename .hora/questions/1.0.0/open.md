@@ -310,6 +310,20 @@ So the choice is not "fix seven assertions":
 the checkpoint wrote, so a failure in a surface this feature does not touch is outside its
 signal. It is recorded here so the gate is not later read as having passed a green suite.
 
+- [x] the seven failing tests are closed — checkpoint 18, run 1 finding 1
+      Not by correcting the assertions, which was the cheaper of the two options offered above
+      and would have left three tests whose titles describe a precondition they never establish.
+      The root cause was a missing seam: both cookie getters read `renchan-env`'s facade inline,
+      and that facade refuses every write by design, so the fallback branch each getter declares
+      could not be reached from a test on any machine. A `static get env ()` now stands between
+      them, and the suite is green at 524.
+
+      **The question underneath is still open, and it is still a person's.** `server/index.js`
+      starts Customer GraphQL and Admin GraphQL, two servers the spec's §2.1 does not declare.
+      Fixing their tests made them correct; it did not make them declared. Removing that surface
+      is a deletion nobody has authorised, and keeping it means carrying a GraphQL API with
+      cookie settings nothing in this product reads.
+
 ## Q14 · lacked-environment · blocking: no
 
 **Raised at** checkpoint 6 of #run-contract, 2026-09-23.

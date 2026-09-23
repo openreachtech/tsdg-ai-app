@@ -2,7 +2,7 @@
 
 ## Features
 
- 1. [ ] #run-contract             backend
+ 1. [x] #run-contract             backend
  2. [ ] #run-record               backend   depends: run-contract
  3. [ ] #run-execution            backend   depends: run-record
  4. [ ] #provider-layer           backend   depends: run-execution

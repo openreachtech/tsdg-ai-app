@@ -41,4 +41,4 @@ Constraint: a model call is never retried automatically (#scope, permanently out
 - [x] 17. Local test environment  <!-- n/a: target names no frontend row -->
 
 ## Acceptance gate
-- [ ] 18. Acceptance (E2E and unit both)
+- [x] 18. Acceptance (E2E and unit both)  <!-- skills: hor-backend-testing, hoc-jest, hoc-test-execution; digests: hora-skills-ort-renchan 0.2.1, hora-skills-ort-core 0.4.0 --> <!-- cleared: 0; agents: 0; agent-time: 0s; verify-time: 0s; wall-time: ~3000s -->
