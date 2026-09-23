@@ -299,3 +299,30 @@ in section 7 came from the requester.
 
 Everything stage 0 read but must not decide is listed in `_assets.md`, under
 "Read but not settled here", each row naming the stage that settles it.
+
+## Stage 2, re-entered — 2026-09-24
+
+Re-entered from checkpoint 1 of #run-record, which found an acceptance criterion that could
+not be met at its own gate ([[Q29]]).
+
+**What changed.** `ai_model_calls` moved from `#run-record` to `#provider-layer`, with the use
+case and the criterion that read it. `#provider-layer` now declares `depends: run-contract`
+(it had declared `run-execution`, which nothing in it needs) and stands second in the build
+order. `#retention` now declares `run-record, provider-layer, media-fetch`; the third edge had
+been missing since the section was written, and the order happened to satisfy it.
+
+The order was walked end to end afterwards: **zero forward edges.**
+
+### The two numbers
+
+**Features: 11**, unchanged by this re-entry.
+
+**Version criteria satisfied at each milestone boundary — 4 of 6 at milestone 1, 6 of 6 at
+milestone 2.** Neither of the two readings that would be findings holds: the criteria do not
+all wait for the last milestone, and the plan does not have only one milestone.
+
+Milestone 1 carries the whole end-to-end pass, the no-key demonstration, the credential
+boundary, and "the AI proposes and never decides". What waits for milestone 2 is listing and
+cancellation, and the logging criterion — which spans eight features including `#operator-cli`
+and `#retention`, so it could not land earlier without reordering those two into milestone 1.
+

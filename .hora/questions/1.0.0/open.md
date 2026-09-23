@@ -733,3 +733,84 @@ data-model change clears from checkpoint 3.** Nothing was cleared, deliberately.
       **Recorded because a digest that moved with no checkpoint cleared is indistinguishable
       from a reconciliation nobody ran.** The digests are now updated to the corrected text.
 
+## Q29 · forward-reference · blocking: yes
+
+**Raised at** checkpoint 1 of #run-record, 2026-09-24. **Routed to /hora-spec, stage 2.**
+<!-- spec: run-record -->
+
+`#run-record`'s fourth acceptance criterion cannot be met at its own gate.
+
+> each model call is recorded with its model, its input and output token counts, and its outcome
+
+`ai_model_calls.AiModelId` is `bigint NOT NULL`, and it points at `ai_models` — a table declared
+in **§17 Provider layer**. The build order puts `#provider-layer` fourth and `#run-record`
+second, so at `#run-record`'s gate that table does not exist and there is no row to reference.
+A model call cannot be written at all, let alone checked.
+
+Checkpoint 1's exit condition is that every criterion be checkable **against a product in which
+this feature and its `depends` are built and nothing later is**. `#run-record` declares
+`depends: run-contract` and nothing else, so `#provider-layer` is strictly later.
+
+**This is a data dependency the annotations do not carry, not only a criterion that reaches
+forward** — the `NOT NULL` column is what makes it real rather than a matter of wording.
+
+- [x] resolved — but **not by the reorder that was first agreed**, which turned out to be
+      impossible
+
+      Checking `#provider-layer`'s own `depends` before writing the edit showed a **cycle**:
+      `run-record → provider-layer → run-execution → run-record`. The first framing put to the
+      author was incomplete — it named the missing edge without checking what the other feature
+      already declared — so the choice was put again with the real shape.
+
+      The two features depend on each other **as specified**: `ai_model_calls` sat in
+      `#run-record` while `ai_models` sits in `#provider-layer`, and each one's criteria read the
+      other's table. `#provider-layer`'s criteria 3 and 6 name what a model call records;
+      `#run-record`'s criterion 4 names the model it points at.
+
+      **The cut: `ai_model_calls` moves to `#provider-layer`**, with the use case and the
+      criterion that read it. A call is only meaningful against the model that answered it, and
+      that catalog is provider-layer's. The table's only outward edge is then `AiRunId` into
+      `ai_runs`, which `#run-contract` already builds — so provider-layer depends on
+      `#run-contract` alone and stands second.
+
+      Two further corrections fell out of the same walk. `#provider-layer` declared
+      `depends: run-execution`, which nothing in it needs — not one of its tables reaches the
+      worker. And `#retention` declared `depends: run-record` while its criteria read
+      `ai_model_calls` (now provider-layer's) and `provider_uploaded_files` (§18's); that second
+      edge had been missing all along, and the order happened to satisfy it, which is why nobody
+      had seen it.
+
+      The new order was walked end to end: **zero forward edges**.
+
+      **The cheaper-looking option was the wrong one, twice over.** Declining this cut the first
+      time was reasonable on the framing given — it was only after reading §17 that "split
+      recording a run in half" turned out to mean "put the record of a call next to the catalog
+      it points at".
+
+      **What was decided first, and why it is recorded rather than erased.** The original answer
+      was "reorder — `#provider-layer` moves ahead of `#run-record`", chosen over this cut and
+      over relaxing the column to `NULL`. It is kept here because the reasoning against this cut
+      was sound on the information given, and because the correction came from checking one more
+      annotation rather than from anybody changing their mind.
+
+## Q30 · spec-assumption · blocking: no
+
+**Raised at** checkpoint 1 of #run-record, 2026-09-24.
+<!-- spec: run-record -->
+
+`#run-record`'s seventh acceptance criterion ends:
+
+> …and none of that is content, so none of it is removed by the content purge
+
+Read as a behavior, that reaches `#retention` — feature eleven, built last — and would be a
+second forward reference. Read as a structural property, it says these columns are not content
+columns, which the schema answers on its own.
+
+- [x] resolved — the structural reading, confirmed rather than assumed
+      Checked with the author rather than decided here, because half of what looks like a hole
+      in a spec is a hole in the reading of it. The criterion is checkable at this feature's own
+      gate by inspecting the columns, and no spec change is owed.
+
+      What `#retention` still owes is its own criterion about what the purge removes. That is
+      its gate's, not this one's.
+

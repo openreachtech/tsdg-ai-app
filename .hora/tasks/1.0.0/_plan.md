@@ -3,16 +3,16 @@
 ## Features
 
  1. [x] #run-contract             backend
- 2. [ ] #run-record               backend   depends: run-contract
- 3. [ ] #run-execution            backend   depends: run-record
- 4. [ ] #provider-layer           backend   depends: run-execution
+ 2. [ ] #provider-layer           backend   depends: run-contract
+ 3. [ ] #run-record               backend   depends: run-contract
+ 4. [ ] #run-execution            backend   depends: run-record
  5. [ ] #media-fetch              backend   depends: run-execution
  6. [ ] #run-delivery             backend   depends: run-execution
  7. [ ] #asset-media-extraction   backend   depends: run-delivery, provider-layer, media-fetch
  8. [ ] #run-list                 backend   depends: run-delivery
  9. [ ] #run-cancel               backend   depends: run-execution
 10. [ ] #operator-cli             backend   depends: run-list
-11. [ ] #retention                backend   depends: run-record
+11. [ ] #retention                backend   depends: run-record, provider-layer, media-fetch
 
 ## Acceptance
 

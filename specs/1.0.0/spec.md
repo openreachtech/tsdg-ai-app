@@ -364,22 +364,6 @@ Same shape as the other masters. Seeds code, ai, human.
 
 Part of the decision trace, so it is kept on the long clock and never purged with content.
 
-#### `ai_model_calls`
-
-| Column | Type | Constraint | Description |
-|---|---|---|---|
-| `id` | bigint | PK | |
-| `AiRunId` | bigint | NOT NULL, indexed | |
-| `AiModelId` | bigint | NOT NULL | which model answered |
-| `action_name` | string | NOT NULL | which step made the call |
-| `reading_index` | int | NOT NULL | which of the readings this was |
-| `prompt_version` | string | NOT NULL | so a result can be reproduced |
-| `latency_milliseconds` | int | NOT NULL | |
-| `input_token_count` | int | NOT NULL | the basis for billing |
-| `output_token_count` | int | NOT NULL | |
-| `response_body` | text('medium') | NULL once purged | content |
-| `called_at` | datetime(3) | NOT NULL | UTC |
-
 #### `ai_run_field_statuses` — master
 
 Same shape as the other masters. Seeds extracted, derived, suggested and missing.
@@ -420,7 +404,6 @@ deferred calibration target reachable rather than a wish.
 
 - an operator asked what a run actually did reads it back with its steps in the order they ran, each saying what it was and how long it took
 - an operator asked why a run returned no value for a field reads the agreement counts and reason codes recorded against the step that settled it
-- ORT bills a run by reading the model calls recorded against it, including the calls a canceled run had already spent
 
 ### Acceptance criteria
 <!-- acceptance -->
@@ -428,7 +411,6 @@ deferred calibration target reachable rather than a wish.
 - every run carries one of five statuses — queued, running, succeeded, failed, canceled — and a run never leaves succeeded, failed or canceled once it is there
 - a run whose result is legitimately empty is recorded as succeeded, not as failed
 - each step of a run is recorded in the order it ran, and says whether it was code or a model call
-- each model call is recorded with its model, its input and output token counts, and its outcome
 - a failed run records a reason code; a succeeded run records none
 - the time cancellation was asked for and the time it took effect are recorded separately, so the gap between them is measurable
 - a field a run settled is recorded with its state, its confidence, how many readings agreed out of how many, and the version of the formula that scored it — and none of that is content, so none of it is removed by the content purge
@@ -664,7 +646,7 @@ never prints a request body or a result body, which is stricter than any API cal
 ## 17. Provider layer
 <!-- id: provider-layer -->
 <!-- target: backend -->
-<!-- depends: run-execution -->
+<!-- depends: run-contract -->
 
 Ported as a set from `annex/reference/leepai/`. The tables below are that store; their
 column detail is in the extract, and the port is expected to match it rather than restate it.
@@ -675,6 +657,7 @@ column detail is in the extract, and the port is expected to match it rather tha
 |---|---|---|
 | `ai_providers` | `name` | one row per vendor |
 | `ai_models` | `AiProviderId`, `name`, `target_model_name`, `is_default`, `is_active`, `display_order` | the app-facing model name and the vendor's own model id, as data. Adding a model is a row |
+| `ai_model_calls` | `AiRunId`, `AiModelId`, `action_name`, `reading_index`, `prompt_version`, `latency_milliseconds`, `input_token_count`, `output_token_count`, `response_body` (NULL once purged), `called_at` | one row per call a run made. It sits here rather than with the run record because a call is only meaningful against the model that answered it, and that catalog is this feature's |
 | `ai_model_capabilities` | `AiModelId`, `context_window_token`, `max_output_token` | the limits a payload is built against |
 | `ai_tools` | `name`, `description`, `payload` (TEXT, a stringified JSON schema), `is_visible`, `display_order` | a tool schema is data: changing what a step may return needs no deployment |
 | `ai_agents` | `name`, `description`, `registered_at`, `saved_at` | one agent per AI service |
@@ -704,6 +687,7 @@ the admin console that would give it a surface is deferred.
 - ORT changes the Vietnamese wording a service sends to a model without deploying anything, because prompts are data rather than code
 - ORT reproduces a result from months ago, because the prompt version each call used is recorded against it
 - ORT adds a model without touching the services that use one
+- ORT bills a run by reading the model calls recorded against it, including the calls a canceled run had already spent
 
 ### Acceptance criteria
 <!-- acceptance -->
@@ -714,6 +698,7 @@ the admin console that would give it a surface is deferred.
 - prompts, roles, tool schemas and models are read from the database, and changing one needs no deployment
 - every change to a prompt or a role leaves the previous version readable
 - every model call records the prompt version it used
+- each model call is recorded with its model, its input and output token counts, and its outcome
 - no code outside the client modules opens an outbound connection
 
 
@@ -781,7 +766,7 @@ when", kept independently of whether the run's content still exists.
 ## 19. Retention
 <!-- id: retention -->
 <!-- target: backend -->
-<!-- depends: run-record -->
+<!-- depends: run-record, provider-layer, media-fetch -->
 
 No table of its own. Clears content columns in place and records when it did.
 
@@ -910,9 +895,9 @@ new idempotency key.
 ### Milestone 1 (MVP) — one run, end to end, on the stub
 
 1. Accepting a signed, idempotent request (#run-contract)
-2. Recording a run, its steps and its model calls (#run-record)
-3. Executing a run in a worker (#run-execution)
-4. The provider layer, stub by default (#provider-layer)
+2. The provider layer, stub by default (#provider-layer)
+3. Recording a run, its steps and what it settled (#run-record)
+4. Executing a run in a worker (#run-execution)
 5. Fetching media through the allow-list (#media-fetch)
 6. Delivering and reading back the result (#run-delivery)
 7. Field suggestions from an asset's photos (#asset-media-extraction)
@@ -924,6 +909,10 @@ fetcher, the delivery — and the whole pass across them is this version's first
 criterion, checked at the sweep rather than at any feature's gate. **No gate in milestone 1
 claims to have proved the end-to-end path**, and the order cannot be rearranged to make one
 do so: every dependency in it is real.
+
+The provider layer comes second rather than fourth because the model catalog is what a
+model call points at: `ai_model_calls.AiModelId` is NOT NULL, so the record of a call
+cannot exist before the catalog does.
 
 ### Milestone 2 — operating a run
 
