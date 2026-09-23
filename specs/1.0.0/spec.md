@@ -136,7 +136,7 @@ client system.
 - Executing a run in a worker, dispatched only once the creating transaction has committed (#run-execution)
 - Delivering the result on a signed callback, and reading it back by run key (#run-delivery)
 - Listing runs, filtered and paginated, scoped to the calling client (#run-list)
-- Cancelling a run at a step boundary (#run-cancel)
+- Canceling a run at a step boundary (#run-cancel)
 - A read-only operator command that finds runs without a run key in hand (#operator-cli)
 - The provider layer — stub by default, with prompts, tool schemas and models held as data (#provider-layer)
 - Fetching media through a host allow-list, with size caps and an egress record (#media-fetch)
@@ -282,7 +282,7 @@ One row seeded this version, for asset media extraction. Each later service adds
 
 #### `ai_run_statuses` — master
 
-Same shape as `ai_run_categories`. Seeds queued, running, succeeded, failed, cancelled.
+Same shape as `ai_run_categories`. Seeds queued, running, succeeded, failed, canceled.
 
 #### `ai_runs`
 
@@ -308,7 +308,7 @@ Same shape as `ai_run_categories`. Seeds queued, running, succeeded, failed, can
 | `started_at` | datetime(3) | NULL until a worker picks it up | |
 | `finished_at` | datetime(3) | NULL until terminal | |
 | `cancel_requested_at` | datetime(3) | NULL | |
-| `cancelled_at` | datetime(3) | NULL | |
+| `canceled_at` | datetime(3) | NULL | |
 | `content_purged_at` | datetime(3) | NULL | distinguishes purged from never having carried content |
 
 The unique pair of client and request key is the whole of idempotency: the same key
@@ -420,12 +420,12 @@ deferred calibration target reachable rather than a wish.
 
 - an operator asked what a run actually did reads it back with its steps in the order they ran, each saying what it was and how long it took
 - an operator asked why a run returned no value for a field reads the agreement counts and reason codes recorded against the step that settled it
-- ORT bills a run by reading the model calls recorded against it, including the calls a cancelled run had already spent
+- ORT bills a run by reading the model calls recorded against it, including the calls a canceled run had already spent
 
 ### Acceptance criteria
 <!-- acceptance -->
 
-- every run carries one of five statuses — queued, running, succeeded, failed, cancelled — and a run never leaves succeeded, failed or cancelled once it is there
+- every run carries one of five statuses — queued, running, succeeded, failed, canceled — and a run never leaves succeeded, failed or canceled once it is there
 - a run whose result is legitimately empty is recorded as succeeded, not as failed
 - each step of a run is recorded in the order it ran, and says whether it was code or a model call
 - each model call is recorded with its model, its input and output token counts, and its outcome
@@ -504,7 +504,7 @@ No response bodies are stored: a delivery record says whether it arrived, not wh
 
 | Job | Trigger | Queue | Payload | Why not in the request path |
 |---|---|---|---|---|
-| deliver a run's terminal callback | a run reaching succeeded, failed or cancelled | `deliver-run-callback` | `{ aiRunId }` | it posts to somebody else's server, which can be slow or down, and it is retried until it lands |
+| deliver a run's terminal callback | a run reaching succeeded, failed or canceled | `deliver-run-callback` | `{ aiRunId }` | it posts to somebody else's server, which can be slow or down, and it is retried until it lands |
 
 ### Use cases
 <!-- usecases -->
@@ -516,13 +516,13 @@ No response bodies are stored: a delivery record says whether it arrived, not wh
 ### Acceptance criteria
 <!-- acceptance -->
 
-- every run reaching succeeded, failed or cancelled produces one terminal callback to the client's registered callback URL
+- every run reaching succeeded, failed or canceled produces one terminal callback to the client's registered callback URL
 - a callback URL that does not match the client's registered prefix is not called at all
 - a callback is signed the same way a request is, and additionally carries the run key in a header
 - reading a run back by its key returns the same body the terminal callback carried
 - asking for the step trace adds it to that response, and a response that did not ask for it carries none
 - a failed run's body carries a reason code and its parameters, and no result
-- a cancelled run's body reports the model calls and tokens spent up to the stop
+- a canceled run's body reports the model calls and tokens spent up to the stop
 - a callback that fails to deliver is retried, though a model call in the same run is not
 - reading a run that belongs to another client answers as though the run did not exist, and says nothing about whether it does
 
@@ -609,19 +609,19 @@ creates nothing the second time and answers with the state that already holds.
 
 - the client system cancels a run whose result stopped being wanted, and nothing is spent on model calls made after that point
 - the client system that cancels a run which has already finished gets that run's real state back, rather than an error it has to handle
-- ORT measures how long cancelling actually takes, because a run stops at a step boundary rather than instantly
+- ORT measures how long canceling actually takes, because a run stops at a step boundary rather than instantly
 
 ### Acceptance criteria
 <!-- acceptance -->
 
-- a queued run that is cancelled leaves the queue and ends cancelled, having made zero model calls
+- a queued run that is canceled leaves the queue and ends canceled, having made zero model calls
 - a running run stops at the next step boundary, never mid-step
 - a provider call in flight is aborted, and the tokens spent up to the abort are still recorded
 - cancellation is terminal, and always delivers a terminal callback
-- cancelling a run that has already reached a terminal state returns that state, not an error
+- canceling a run that has already reached a terminal state returns that state, not an error
 - only the client that created a run may cancel it; any other caller is refused
-- a cancelled run is distinguishable from a failed run in the list
-- cancelling another client's run answers as though the run did not exist, and that run is left unchanged
+- a canceled run is distinguishable from a failed run in the list
+- canceling another client's run answers as though the run did not exist, and that run is left unchanged
 
 
 ## 16. Operator CLI
@@ -928,7 +928,7 @@ do so: every dependency in it is real.
 ### Milestone 2 — operating a run
 
 8. Listing runs (#run-list)
-9. Cancelling a run (#run-cancel)
+9. Canceling a run (#run-cancel)
 10. The operator command (#operator-cli)
 11. Purging content and the trace on two clocks (#retention)
 
@@ -946,7 +946,7 @@ do so: every dependency in it is real.
   spans: #run-contract, #run-record, #run-execution, #run-delivery
 - the whole of that pass is demonstrable with no API key and no provider call, because the stub answers deterministically
   spans: #provider-layer, #asset-media-extraction
-- one run can be listed and cancelled: it appears in the calling client's filtered list, and cancelling it ends it at a step boundary with the tokens already spent still recorded
+- one run can be listed and canceled: it appears in the calling client's filtered list, and canceling it ends it at a step boundary with the tokens already spent still recorded
   spans: #run-list, #run-cancel
 - no log written anywhere carries an image, a document or question content — ids, latency, tokens, reason codes and error codes only
   spans: #run-record, #run-delivery, #run-list, #operator-cli, #provider-layer, #media-fetch, #retention, #asset-media-extraction

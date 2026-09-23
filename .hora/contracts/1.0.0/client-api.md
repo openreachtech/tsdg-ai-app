@@ -30,6 +30,14 @@ and no guest allow-list.
 | `GET` | `/v1/ai-runs` | `AiRunsGetRenderer` | `?statusName=&runCategoryName=&correlationId=&stalledForSeconds=&limit=&cursor=` | `AiRunsResponse` | the client system, its own runs only. The scope is bound from the signature; no request parameter widens it |
 | `POST` | `/v1/ai-runs/:runKey/cancellations` | `AiRunCancellationPostRenderer` | path `runKey`, empty body | `AiRunCancellationResponse` | the client that created the run. Another client's run answers as though it did not exist |
 
+**A request with an empty body still signs the bytes it sent.** Cancellation carries no
+fields, and a caller that omits the body entirely — no `Content-Type`, nothing to read — is
+signing one string while the server verifies another, and is refused `401` for what looks to
+the caller like a correct signature. Send `Content-Type: application/json` with either
+`Content-Length: 0` or `{}`, and sign exactly those bytes. The server does not special-case
+the empty body: the rule is the same one every other route follows, stated here because this
+is the only route where a caller has nothing to send.
+
 ## Callback
 
 The one request that runs the other way. It is not a route of this server.
@@ -67,7 +75,8 @@ behind it. `mediaCategoryName` names a row in a master table this service keeps.
 | Field | Holds |
 |---|---|
 | `runKey`, `runCategoryName`, `externalRef`, `subjectLabel`, `correlationId` | echoed from the request |
-| `statusName` | one of `queued`, `running`, `succeeded`, `failed`, `cancelled` |
+| `statusName` | one of `queued`, `running`, `succeeded`, `failed`, `canceled` |
+| `runCategoryName` | one of `asset-media-extraction`. One value this version; each later AI service adds one |
 | `engine` | which loop and model produced the result, and the version of the confidence formula that scored it |
 | `usage` | `modelCallCount`, `inputTokenCount`, `outputTokenCount` |
 | `result` | per service. `null` unless the run succeeded |
@@ -99,6 +108,16 @@ screen.
 The run's `statusName` after the request, which is its terminal state where it had already
 reached one.
 
+## What a request is answered with when it is accepted
+
+| Status | When |
+|---|---|
+| `202` | the run was accepted. The body is `AiRunAcceptedResponse`. **`202` rather than `201`** because nothing has been created for the caller to fetch yet — the use case is "receives a run key back before any work has begun" |
+| `202` | a repeat of the same idempotency key with the same body. It answers the run created the first time, in the same shape, carrying that run's status as it now stands |
+
+A repeat is not `200`: the caller cannot tell from the status whether this was the first
+request or the fifth, and it does not need to. What it needs is the same run key either way.
+
 ## How a request is refused
 
 Every refusal below happens **before a run is created**. A run that was accepted and later
@@ -112,6 +131,8 @@ of these.
 | `404` | the run named by the path belongs to another client. Deliberately not `403`: a refusal that admitted the run existed would confirm another client's data |
 | `409` | the same idempotency key with a different body. The first run is unchanged |
 | `422` | a required field is missing, or a field's value is not one the schema accepts |
+| `422` | the `Idempotency-Key` header was not sent. It is a required field of the request, even though it does not travel in the body |
+| `422` | nothing could be read as a body. A run cannot be stored without the hash of the bytes it was accepted with, so this is refused rather than stored incomplete |
 
 `401` and `403` are told apart on purpose: the first says the caller is not who it claims,
 the second says it is and may not. A caller that cannot tell them apart retries a rotation

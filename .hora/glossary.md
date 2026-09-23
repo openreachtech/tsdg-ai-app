@@ -38,6 +38,19 @@ read from the package itself** under the backend row's `node_modules/`.
 | reason code | `reasonCode` | field | backend, the contract | a code plus `parameters`. Never display wording |
 | content | `requestBody` / `resultBody` / `responseBody` | fields | backend | the short retention clock |
 | decision trace | — | concept | backend | the step, field-outcome and model-call rows. The long clock |
+| shared model ancestor | `BaseAppRenchanModel` | class | backend | `sequelize/baseModel/`. Every model extends it; none extends the framework's `RenchanModel` directly, so shared behavior has one home |
+| the asset-media-extraction service | `asset-media-extraction` | master row value | backend, the contract | the `name` of the one seeded run category. It is what the API returns as `runCategoryName`, and it matches the feature id, the route and the queue |
+| the run-status constant set | `AI_RUN_STATUS` | constant hash | backend | `constants/aiRunStatusConstants.cjs`, with an ESM bridge beside it. Five rows, ids 1–5 |
+| the run-category constant set | `AI_RUN_CATEGORY` | constant hash | backend | `constants/aiRunCategoryConstants.cjs`, with an ESM bridge beside it |
+| request body hash | `requestBodyHash` | field | backend | a hex digest of the raw request bytes, kept so a repeated idempotency key can be told apart from a changed body without keeping the body |
+| secret at rest | `ApiClientSecretCipher` | class | backend | `app/apiClient/`. AES-256-GCM. The envelope is `<ivHex>:<authTagHex>:<ciphertextHex>` in one column |
+| signature check | `ApiClientSignatureVerifier` | class | backend | `app/apiClient/`. Holds both of a client's secrets, and accepts either while a rotation is under way |
+| freshness window | `RequestTimestampWindowInspector` | class | backend | `app/apiClient/`. 300 seconds either way, and the clock is passed in rather than read |
+| run key minting | `RunKeyGenerator` | class | backend | `app/aiRun/`. 32 random bytes as hex — see Q9 for why not the catalogued package |
+| body digesting | `RequestBodyDigester` | class | backend | `app/aiRun/`. Produces the `requestBodyHash` above, from the raw bytes and never from a re-serialization |
+| the active fixture client | `development-client` | seeded value | backend | `api_clients` id `10000001`. The one a local run signs with |
+| the rotating fixture client | `rotating-client` | seeded value | backend | id `10000002`. Carries both secrets, so a test can prove a rotation is not an outage |
+| the switched-off fixture client | `inactive-client` | seeded value | backend | id `10000003`. Signs correctly and is refused `403`, which is what tells that refusal apart from `401` |
 
 ## Names avoided, and why
 
@@ -53,3 +66,4 @@ read from the package itself** under the backend row's `node_modules/`.
 | `confidence` | the client's interface already carries `confidenceScore`, meaning an organisation match percentage, and the two will appear on one screen | `suggestionConfidence` |
 | `key` for a field identifier | the value is a dotted path, not a flat key, and the same word has to read the same on the way in and the way out | `path` |
 | `ctx`, `err`, `msg`, `num` | all on the denylist | `context`, `error`, `message`, `count` |
+| `cancelled`, `cancelling` | British spelling. The naming convention requires American always, and `no-restricted-syntax` enforces it by name — the most protected rule there is, so no per-file exception can buy it off. The spec, the contract and the code all carried the British form until lint caught it | `canceled`, `canceling` |

@@ -17,8 +17,23 @@ types/      hand-written and generated declarations
 public/     static files the REST engine serves
 ```
 
-`app/`, `sequelize/models/` and `sequelize/migrations/` ship empty — nothing to match a
-convention against yet, so the conventions below come from the framework's own wiring.
+`sequelize/models/` and `sequelize/migrations/` ship empty. **`app/` does not** — corrected
+after a first reading of this tree said it did. It ships:
+
+| Path | What it is |
+|---|---|
+| `app/globals/` | the `env` / `rootPath` / `require` barrel every module reads config through |
+| `app/constants/authConstants.js` | the ESM bridge of `constants/authConstants.cjs` |
+| `app/session/` | five classes implementing a **cookie session** — `SessionClerk` (17 KB), `SessionCredentialGenerator`, and three result classes |
+
+**`app/session/` belongs to the boilerplate's cookie authentication, which this service does
+not use** — it authenticates machines by signature and issues no cookie. It is not dead
+code to delete on sight, but nothing this version builds reaches it.
+
+**`SessionCredentialGenerator` is worth knowing about for a different reason:** it is the
+repository's own precedent for cryptography — `crypto.randomBytes(32).toString('hex')` for
+an unguessable token, `crypto.createHash('sha256')` for a digest — and its class doc
+explains why each choice was made. New crypto in this repository should read like it.
 
 ## How servers are split
 
@@ -114,6 +129,32 @@ Checkpoint 17 is what builds it.
 |---|---|
 | `docker.sh` | the boilerplate ships the `db:*` scripts but no way to bring middleware up |
 | `docker-compose.development.yml` | MariaDB 10.5.12 and Redis 7.4 without a profile, the rest behind one. Every port bound to `127.0.0.1` |
+
+## The npm scripts assume a POSIX shell
+
+`db:refresh`, `db:setup`, `dev`, `test` and `test:live` all begin `export NODE_ENV=…`.
+npm runs a script through `cmd.exe` on Windows, where `export` is not a command, so **every
+one of them fails there** with `'export' is not recognized`.
+
+Run them through a POSIX shell instead, or run what they wrap directly. Measured on this
+machine: `npm run db:refresh` fails; the same four steps run one by one under bash
+(`rm sequelize/storage/*.sqlite3`, `npx sequelize-cli db:migrate`, then the two
+`db:seed:all --seeders-path …` calls) all succeed.
+
+This is the boilerplate's, not this project's. Nothing here was changed for it.
+
+## Where naming is written, and where it is enforced
+
+**Two places, and neither names the other.** The naming convention — abbreviations, forbidden
+words, American spelling, the verb table — is a skill under `.claude/skills/`. What actually
+stops a wrong name is `@openreachtech/eslint-config/lib/configurations/core-rule-option-hash.js`
+in this row's `node_modules/`, which holds both `id-denylist` and the `no-restricted-syntax`
+entries that name offending spellings one by one.
+
+**Read the second one directly whenever a name is being chosen.** The convention skill does
+not mention that any of it is linted, so a name can satisfy the document and still fail the
+build — which is exactly how the British `cancelled` reached the spec, the contract and four
+generated files before anything caught it.
 
 ## Divergences worth carrying forward
 
