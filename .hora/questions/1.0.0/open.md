@@ -239,6 +239,21 @@ invisible in the file it lives in — one regular expression that reads like inp
 later reader tidying the class has nothing telling them it is load-bearing, and with no test
 behind it, nothing stops them.
 
+- [x] resolved at checkpoint 18, which reopened checkpoint 6 to do it
+      The debt was nearly closed on the strength of a green suite. It was not: four classes
+      built at checkpoint 5 had **no test file at all**, and deleting the digits-only line from
+      `#hasSignatureMaterial()` left all 504 tests passing. The paragraph above turned out to be
+      exactly right about its own fate.
+
+      All four now have one, and the re-split case is written from the attack rather than from
+      the fix — the same signature literal presented once honestly and once with the boundary
+      moved, so it can fail for that and nothing else. Verified by deleting the line again: the
+      case goes red by name. The suite stands at 759.
+
+      **The lesson is about the check, not the code.** "Is this guarded?" cannot be answered by
+      reading a test list or by a passing run. It is answered by breaking the thing and watching
+      something go red.
+
 ## Q12 · undefined-detail · blocking: no
 
 **Raised at** the close of checkpoint 5 of #run-contract, 2026-09-23.

@@ -119,3 +119,53 @@ delegate covers the scenario list or the acceptance review on a backend-only pro
 where the surface question underneath finding 1 still sits), and the local end-to-end stack
 still cannot come up on this machine ([[Q26]]).
 
+## Run 3
+<!-- reach: scoped -->
+<!-- scope: run-contract -->
+<!-- live: no (skipped at the gate) -->
+<!-- reuse: none -->
+<!-- not-accepted: none -->
+<!-- version-criteria: not in scope (gate) -->
+<!-- environment: not brought up — a gate run skips the live review, so the stack is neither required nor started -->
+
+### Verdict
+
+passed over 1 of 11 features; 0 not accepted
+
+### What ran
+
+| Step | Delegate | Result |
+|---|---|---|
+| environment | — | not required at a gate |
+| unit (tsdg-ai-backend) | `hor-backend-testing`, `hoc-jest`, `hoc-test-execution` | **759 passed, 0 failed** across 4 groups |
+| scenarios | **none equipped** | not run — the gap of run 1, finding 2, still stands |
+| review | **none equipped** | not run — same gap |
+| version criteria | — | not in scope (gate) |
+| UX | — | not in scope (gate) |
+| security | — | not in scope (gate); checkpoint 8 audited this feature's change set |
+
+`tests/__tests__` 739 passed; `tests/_orders` 20 passed; the two `tests/empty/` groups hold no
+tests.
+
+### Why run 2's pass was withdrawn
+
+**Run 2 recorded a pass that a green suite did not entitle it to.** [[Q11]] — the regression
+guard owed for the signature-splitting vulnerability closed at checkpoint 5 — was still open,
+and was checked rather than assumed. Four classes built at checkpoint 5 had **no test file at
+all**, and deleting the digits-only line from `ApiClientSignatureVerifier#hasSignatureMaterial()`
+left every one of run 2's 504 tests passing.
+
+So the fix for a live vulnerability was guarded by nothing, and nothing in the suite said so.
+
+**Checkpoint 6 was cleared and re-earned** through `retake/run-contract-module-tests`, merged
+`--no-ff` into `release/1.0.0`. The four classes now have test files covering every member, and
+the re-split case is written from the attack rather than from the fix: the same signature
+literal is presented once honestly and once with the boundary between timestamp and body moved,
+so the case can fail for that and nothing else. Deleting the line again turns it red by name.
+
+**No production code changed.** This retake added tests only.
+
+Run 1's findings 2 and 3 remain open and are not this run's to close — no equipped delegate
+covers the scenario list or the acceptance review on a backend-only product, and the local
+end-to-end stack still cannot come up on this machine ([[Q26]]).
+
