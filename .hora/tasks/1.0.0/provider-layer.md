@@ -1,5 +1,5 @@
 # #provider-layer  The provider layer, stub by default
-<!-- spec: provider-layer @ sha256:27de79873a6e0be69473f67df0cdf7c176573c17c0cf7299256e2aaaae675d28 -->
+<!-- spec: provider-layer @ sha256:83f672508e611f9ab742084aa142ed546ad1bcf6de5f5a245387bb4bef95e5b0 -->
 <!-- repositories: backend -->
 
 Constraint: the stub is what a default installation runs, in every environment — not a
@@ -20,8 +20,8 @@ Constraint: a model call is never retried automatically (#scope, permanently out
             idempotency key
 
 ## Spec gate
-- [ ] 1. Draft or confirm the specification
-- [ ] 2. Verify the use cases can be met
+- [x] 1. Draft or confirm the specification  <!-- skills: hoc-requirement-definition; digests: none taken — an interactive checkpoint starts no agent, and the main session read the skill in full --> <!-- wall-time: ~1800s -->
+- [x] 2. Verify the use cases can be met  <!-- skills: none matched — this checkpoint's delegate covers the shared UI/UX project context, a frontend surface this feature has none of; digests: none --> <!-- wall-time: ~900s -->
 
 ## Backend gate
 - [ ] 3. DB and API schemas

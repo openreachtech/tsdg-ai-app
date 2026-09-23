@@ -814,3 +814,75 @@ columns, which the schema answers on its own.
       What `#retention` still owes is its own criterion about what the purge removes. That is
       its gate's, not this one's.
 
+## Q31 · forward-reference · blocking: no
+
+**Raised and resolved at** checkpoint 1 of #provider-layer, 2026-09-24.
+<!-- spec: provider-layer -->
+
+The feature's first use case read:
+
+> ORT runs the whole service — the job, the steps, the result — on a machine with no API key
+> and no outbound access, because a default installation answers on the stub
+
+**The job, the steps and the result belong to `#run-execution`, `#run-record` and
+`#run-delivery`**, all built after this feature. Checkpoints 2 and 9 verify use cases, and
+neither could verify this one where it stands. Verified rather than assumed: none of
+`#provider-layer`'s eleven tables is a job, a step or a result — they are providers, models,
+capabilities, tools, agents and instructions.
+
+- [x] resolved — narrowed to what this feature does
+      > ORT installs the service on a machine with no API key and no outbound access, and the
+      > provider layer answers on the stub: nothing reads a key and nothing opens a connection
+
+      **Nothing was lost by narrowing it.** The end-to-end reading is already the version's own
+      second criterion — "the whole of that pass is demonstrable with no API key and no provider
+      call, because the stub answers deterministically", `spans: #provider-layer,
+      #asset-media-extraction` — checked at the sweep, which is the one run that can check it.
+      What the feature said twice, in one place where it could not be checked, it now says once
+      where it can.
+
+## Q32 · spec-assumption · blocking: no
+
+**Raised at** checkpoint 1 of #provider-layer, 2026-09-24.
+<!-- spec: provider-layer -->
+
+The first acceptance criterion reads "a default installation answers **every service** on the
+stub: no key is read and no outbound connection is opened". No service exists at this feature's
+gate, so read as a claim about services it is vacuous, and read as a property of the
+installation it is checkable now.
+
+- [x] resolved — the structural reading, by the precedent set at [[Q30]]
+      The substance is the installation's default state: the stub is what a fresh install runs,
+      no key is read, no connection is opened. All three are checkable against this feature
+      alone. The quantifier over services is what the version's own second criterion carries.
+
+      Decided by precedent rather than asked again, because the same question about the same
+      shape was settled one feature earlier.
+
+## Q33 · spec-assumption · blocking: no
+
+**Raised at** checkpoint 2 of #provider-layer, 2026-09-24. **Binds checkpoint 3.**
+<!-- spec: provider-layer -->
+
+Use case 3 — "ORT reproduces a result from months ago, because the prompt version each call
+used is recorded against it" — walks only if the recorded version can be resolved back to the
+text that was sent.
+
+`ai_model_calls.prompt_version` records it. The history sinks it would resolve against,
+`ai_agent_default_instructions_bk` and `ai_agent_role_instructions_bk`, carry "identical
+columns" to the live rows: `AiAgentId`, `instruction`, `saved_at`. **None of them is a version
+identifier**, so a call recording `prompt_version = X` has nothing to join X to. Matching by
+`saved_at` earlier than the call time reconstructs a guess; it does not read a record.
+
+- [x] resolved — achievable as written, under a stated assumption
+      The use case is met provided `prompt_version` is **chosen to identify a history row**
+      rather than to describe one — the `saved_at` of the instruction in force, or a value
+      carried on the sink row itself. The spec constrains the value nowhere, so this is a
+      design decision checkpoint 3 makes, not a hole checkpoint 2 must send back.
+
+      **Recorded because the assumption is invisible at the point it gets broken.** A
+      `prompt_version` written as "v3" or as a model name satisfies every column constraint,
+      passes every test that checks a call records one, and quietly makes use case 3
+      unachievable — which nothing would discover until somebody actually tried to reproduce a
+      months-old result.
+

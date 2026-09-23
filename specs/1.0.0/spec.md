@@ -683,7 +683,7 @@ the admin console that would give it a surface is deferred.
 ### Use cases
 <!-- usecases -->
 
-- ORT runs the whole service — the job, the steps, the result — on a machine with no API key and no outbound access, because a default installation answers on the stub
+- ORT installs the service on a machine with no API key and no outbound access, and the provider layer answers on the stub: nothing reads a key and nothing opens a connection
 - ORT changes the Vietnamese wording a service sends to a model without deploying anything, because prompts are data rather than code
 - ORT reproduces a result from months ago, because the prompt version each call used is recorded against it
 - ORT adds a model without touching the services that use one
