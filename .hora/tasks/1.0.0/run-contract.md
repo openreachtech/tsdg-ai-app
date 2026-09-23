@@ -1,5 +1,5 @@
 # #run-contract  The shared entry every AI service is reached through
-<!-- spec: run-contract @ sha256:3cd0ae67c7c164c17c815c0de40cd1bf486a55e5051ed7d5d605582899c0ed22 -->
+<!-- spec: run-contract @ sha256:0b1771ee17532844be32d367942ae90f3f4cd0fad64794fa43bc22dbb47e125d -->
 <!-- repositories: backend -->
 
 Constraint: every later service's POST extends what this builds, so the base renderer and

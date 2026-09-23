@@ -703,3 +703,33 @@ Two harness facts worth carrying over so it does not have to be rediscovered:
   object makes every request answer `422`
 - `RestfulApiRequest.create()` proxies `expressRequest.params`, so the fake request needs one
 
+## Q28 · undefined-detail · blocking: no
+
+**Raised at** the /hora-plan re-entry after #run-contract was accepted, 2026-09-23.
+<!-- spec: run-contract -->
+
+Four sections drifted from the digests their feature files recorded: `run-cancel`,
+`run-contract`, `run-delivery` and `run-record`.
+
+The cause is one commit, `b4fca89`: the British `cancelled` corrected to `canceled` throughout
+the spec, in fifteen places — including the `canceled_at` column of `ai_runs` and the seeded
+value of `ai_run_statuses`.
+
+**A column name and a master-row value are data model, and the reconciliation table says a
+data-model change clears from checkpoint 3.** Nothing was cleared, deliberately.
+
+- [x] resolved — no checkpoint cleared, and here is why that is not an oversight
+      **The spec was corrected toward the code, not away from it.** `no-restricted-syntax`
+      refuses the British spelling by identifier, so the implementation was `canceled` from the
+      first line written; the document was the thing that was wrong. Verified rather than
+      assumed: the migration declares `CANCELED_AT: 'canceled_at'`, the master seeder seeds
+      `canceled`, and a grep across `app/`, `server/`, `sequelize/`, `constants/` and `tests/`
+      finds no surviving British form.
+
+      So nothing built against the old text exists to be stale. Clearing checkpoint 3 of
+      #run-contract would rebuild a migration into exactly itself, and the other three features
+      have not been built at all — every one of their checkpoints is already `[ ]`.
+
+      **Recorded because a digest that moved with no checkpoint cleared is indistinguishable
+      from a reconciliation nobody ran.** The digests are now updated to the corrected text.
+

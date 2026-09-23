@@ -1,5 +1,5 @@
 # #run-record  The run record and its decision trace
-<!-- spec: run-record @ sha256:b15760d2502375853885290cb326b87a8e6e5fb6874fa1a26fcb2ae164fb750c -->
+<!-- spec: run-record @ sha256:e67e918eb67446c292847dd8570db93dd26ab23d979b7e745b36edbb260b67ef -->
 <!-- repositories: backend -->
 
 Constraint: progress events are out of scope for now (#scope). The seam promised for them

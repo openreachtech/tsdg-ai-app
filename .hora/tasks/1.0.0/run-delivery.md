@@ -1,5 +1,5 @@
 # #run-delivery  Delivering a result, and reading it back
-<!-- spec: run-delivery @ sha256:a83a83fb3c410680cdc3de5913c087540c8d2ceb766a2e698cff68892a40c5e0 -->
+<!-- spec: run-delivery @ sha256:1cfc5efaeb6179037d17013badcf32a33d8e985150fa8099aad158cf63543851 -->
 <!-- repositories: backend -->
 
 Constraint: reading a run back returns the same body the terminal callback carried. Two
