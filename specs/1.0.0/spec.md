@@ -656,7 +656,7 @@ column detail is in the extract, and the port is expected to match it rather tha
 | Table | Key columns | Why it exists |
 |---|---|---|
 | `ai_providers` | `name` | one row per vendor |
-| `ai_models` | `AiProviderId`, `name`, `target_model_name`, `is_default`, `is_active`, `display_order` | the app-facing model name and the vendor's own model id, as data. Adding a model is a row |
+| `ai_models` | `AiProviderId`, `name`, `target_model_name`, `is_default`, `is_active`, `display_order` | the app-facing model name and the vendor's own model id, as data. Adding a model is a row plus one driver class; nothing that *uses* a model changes |
 | `ai_model_calls` | `AiRunId`, `AiModelId`, `action_name`, `reading_index`, `prompt_version`, `latency_milliseconds`, `input_token_count`, `output_token_count`, `response_body` (NULL once purged), `called_at` | one row per call a run made. It sits here rather than with the run record because a call is only meaningful against the model that answered it, and that catalog is this feature's |
 | `ai_model_capabilities` | `AiModelId`, `context_window_token`, `max_output_token` | the limits a payload is built against |
 | `ai_tools` | `name`, `description`, `payload` (TEXT, a stringified JSON schema), `is_visible`, `display_order` | a tool schema is data: changing what a step may return needs no deployment |
@@ -665,7 +665,7 @@ column detail is in the extract, and the port is expected to match it rather tha
 | `ai_agent_default_instructions_bk` | identical columns | the write-once history sink |
 | `ai_agent_role_instructions` | `AiAgentId`, `role` (TEXT), `saved_at` | the system prompt |
 | `ai_agent_role_instructions_bk` | identical columns | the write-once history sink |
-| `ai_agent_default_models` | `AiAgentId`, `AiModelId`, `saved_at` | which model an agent uses, as data |
+| `ai_agent_default_models` | `AiAgentId`, `AiModelId`, `saved_at` | which model an agent uses, as data. Not read this version — `ai_models.is_default` is the authority on which model answers |
 | `ai_agent_available_ai_tools` | `AiAgentId`, `AiToolId`, `is_enabled`, `is_default` | which tools an agent may use |
 
 Every editable text is written through the backup mixin, so the live row always holds the
@@ -694,11 +694,11 @@ the admin console that would give it a surface is deferred.
 
 - a default installation answers every service on the stub: no key is read and no outbound connection is opened
 - the stub returns the same answer every time for the same input
-- turning a real provider on is a deliberate change of one setting, and any run that used one records which model answered
-- prompts, roles, tool schemas and models are read from the database, and changing one needs no deployment
+- turning a real provider on is a deliberate change of one setting — `ai_models.is_default` — and any run that used one records which model answered
+- prompts, roles, tool schemas and models are read from the database, and changing one needs no deployment; adding a vendor's model still ships a driver class
 - every change to a prompt or a role leaves the previous version readable
 - every model call records the prompt version it used
-- each model call is recorded with its model, its input and output token counts, and its outcome
+- each model call is recorded with its model and its input and output token counts; the outcome is the run step's (`ai_run_steps.outcome_code`), and a recorded call is one that answered
 - no code outside the client modules opens an outbound connection
 
 

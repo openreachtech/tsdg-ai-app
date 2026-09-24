@@ -1661,19 +1661,35 @@ and output token counts, and **its outcome**". The two can only be reconciled by
 the run's, not the call's — `ai_run_steps.outcome_code` (#run-record) plus the contract's
 `PROVIDER_CALL_FAILED`, with the existence of a call row meaning the call answered.
 
-- [ ] open — **the reading above is an assumption, and it is the spec author's to confirm**
-      Under any other reading the criterion contradicts the data model in its own section.
+- [x] resolved 2026-09-24 — **the reading is confirmed, and the spec now says it**
+      The owner chose the run/step reading over widening the call row. Criterion 7 was rewritten to
+      match the data model it sits beside: "each model call is recorded with its model and its input
+      and output token counts; the outcome is the run step's (`ai_run_steps.outcome_code`), and a
+      recorded call is one that answered."
+
+      **Said plainly, because it is a narrowing and not a clarification:** the old criterion required
+      an outcome on every call; the new one does not. What that costs is a per-model failure rate,
+      which nothing can now answer without adding a column. The owner was told this before choosing.
+
+      **What the choice makes newly load-bearing** — and this is why the structural gap below is now
+      escalated rather than a footnote.
 
       **Why it is worth settling now rather than at #run-execution.** 1.0.0 is unreleased, so the
       migration can still be edited in place; once a long-lived database has run it, adding the
       column is a second migration on live data. Whether a failed provider call must be billed is a
       policy question, but the row shape that would let anyone answer it is this feature's.
 
-      **A structural gap the same reading leaves open, whichever way it is settled:** `ai_model_calls`
-      carries `AiRunId`, `action_name` and `reading_index`; `ai_run_steps` carries `AiRunId`,
-      `step_index` and `step_name`. **No key joins a call to the step that made it.** Anyone building
-      "which call had which outcome" in #run-record or #run-delivery has to match `action_name`
-      against `step_name` by convention, and nothing records that convention.
+      `ai_model_calls` carries `AiRunId`, `action_name` and `reading_index`; `ai_run_steps` carries
+      `AiRunId`, `step_index` and `step_name`. **No key joins a call to the step that made it.**
+
+      While the outcome might have lived on the call, that join was a convenience. Now that the
+      outcome lives only on the step, **the join is the sole way to answer "did this call succeed"**
+      — and it does not exist. Anyone building that read in #run-record or #run-delivery has to match
+      `action_name` against `step_name` by a convention nobody has written down.
+
+      **Owed by #run-record or #run-execution, whichever declares the step row:** either a real key
+      from a call to its step, or that convention written into §10 where both features will read it.
+      Recorded here rather than left implied, because the decision above is what made it necessary.
 
 ## Q58 · undefined-detail · blocking: no
 
@@ -1696,13 +1712,19 @@ all exist, and the table holds **zero rows** in `master`, `dev-master` and `deve
 (executed count). §17 lists it as "which model an agent uses, as data" — and on every installation
 that question currently has no answer in data.
 
-- [ ] open
-      **The risk if it stays undecided:** #run-execution reads one while an operator flips the other,
-      and a run answers on a model nobody selected. That failure is silent — the run succeeds.
+- [x] resolved 2026-09-24 — **`ai_models.is_default` is the authority**
+      Chosen by the owner, and written into §17 in two places so nobody has to find this question:
+      criterion 3 now names the setting, and the `ai_agent_default_models` row now reads "Not read
+      this version".
 
-      Either seed `ai_agent_default_models` beside the agent and make it authoritative, or state that
-      `ai_models.is_default` is the authority and let the per-agent table stay unused until a version
-      needs it.
+      **What that decision leaves standing:** the migration, the model, the `.d.ts` and the
+      association for `ai_agent_default_models` all remain, unread, holding zero rows. That is
+      deliberate — dropping the table and rebuilding it in a later version costs more than leaving
+      it — but a reader who meets it should find the sentence, not infer it. They now do.
+
+      **#run-execution is the feature that must honor this**, and it is the one that would otherwise
+      have made the silent mistake: reading the per-agent table while an operator flips the global
+      flag, so a run answers on a model nobody selected and still succeeds.
 
 ## Q59 · undefined-detail · blocking: no
 
@@ -1722,10 +1744,13 @@ The use case itself ("ORT adds a model without touching the **services** that us
 full: nothing outside the driver names a vendor, and the app-facing `name` is the only key a caller
 holds.
 
-- [ ] open — a wording fix, and `specs/` is not this session's to edit unasked
-      Proposed: "Adding a model is a row plus one driver class; nothing that *uses* a model changes."
-      The criterion would read "models are read from the database; adding a vendor still ships a
-      driver."
+- [x] resolved 2026-09-24 — the owner read both sentences and approved them
+      §17's `ai_models` row now reads "Adding a model is a row plus one driver class; nothing that
+      *uses* a model changes", and criterion 4 gained "; adding a vendor's model still ships a driver
+      class".
+
+      The use case itself never needed changing — "ORT adds a model without touching the services
+      that use one" was met in full, and still is.
 
 ## Q60 · undefined-detail · blocking: no
 
@@ -1783,3 +1808,35 @@ indexed column and computed the contract's `usage` block from real rows — but
       Worth telling #run-delivery and #run-list before they write that block, since `include` is the
       obvious shape to reach for and the eager-load convention in `performance.md` points straight at
       it.
+
+## Q63 · undefined-detail · blocking: no
+
+**Raised at** checkpoint 9 of #provider-layer, 2026-09-24. **§17's digest moved; no checkpoint was
+cleared, and this records why that is a judgment rather than an oversight.**
+<!-- spec: provider-layer -->
+
+The five edits resolving Q57, Q58 and Q59 changed §17, so `provider-layer.md`'s recorded digest no
+longer matched. It was recomputed to
+`65b6124931e449a11c330953a94635c0880189755a6a880a1c659f159a3ff1f2`.
+
+**The recipe had to be recovered rather than looked up.** `hora-plan` states that digests are taken
+per section with annotation comments excluded, but not how the text is normalized. It was derived by
+brute-forcing four variants against the eleven digests already recorded and confirming one matched
+**all eleven**: the `##` heading line kept, every `<!-- … -->` line dropped, no trimming, no trailing
+newline, SHA-256 over UTF-8. Worth writing down — the next person to edit a spec section faces the
+same gap.
+
+- [x] resolved — nothing cleared, deliberately
+      Four of the five edits are clarifications: they name a setting, mark a table unread, and say
+      that adding a model also ships a driver. No table, column, operation or use case changed.
+
+      **The fifth narrows acceptance criterion 7**, and a narrowing is the direction that cannot
+      invalidate work: the code already satisfies the new wording — checkpoint 9 executed exactly
+      that — and no test was ever written against the old "outcome" clause, because §17's data model
+      never gave `ai_model_calls` a column to write it to. Nothing built against the old text exists
+      to be stale.
+
+      This is the same shape as Q28, where the spec was corrected toward the code after the
+      `cancelled` / `canceled` fix and no checkpoint was cleared either. The rule being applied is
+      the reconciliation table's last row: wording, with no change to a table, an operation or a use
+      case, records the new digest and moves on.

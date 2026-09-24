@@ -1,5 +1,5 @@
 # #provider-layer  The provider layer, stub by default
-<!-- spec: provider-layer @ sha256:83f672508e611f9ab742084aa142ed546ad1bcf6de5f5a245387bb4bef95e5b0 -->
+<!-- spec: provider-layer @ sha256:65b6124931e449a11c330953a94635c0880189755a6a880a1c659f159a3ff1f2 -->
 <!-- repositories: backend -->
 
 Constraint: the stub is what a default installation runs, in every environment — not a
