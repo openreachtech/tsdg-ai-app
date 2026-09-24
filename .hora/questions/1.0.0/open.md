@@ -886,3 +886,957 @@ identifier**, so a call recording `prompt_version = X` has nothing to join X to.
       unachievable — which nothing would discover until somebody actually tried to reproduce a
       months-old result.
 
+      **Settled at checkpoint 3, by reading the code rather than the conventions.** Two equipped
+      skills disagreed on what the backup mixin writes: `hor-ai-prompt-document-store` says
+      `.save()` copies the **pre-change** row into the sink, `hor-sequelize-model` says it is an
+      `afterSave` clone of the **new** values. The two imply different `savedAt` values in the
+      sink, and therefore different answers to whether a version can be addressed at all.
+
+      `BackupMixinModel.setupHooks()` settles it: an `afterSave` hook building the sink row from
+      `entity.get(key)`. **The newly saved values.** So the sink holds every version an
+      instruction has ever had, each with its own `savedAt`.
+
+      **`prompt_version` is therefore the `savedAt` of the instruction in force**, which
+      addresses exactly one sink row and resolves a months-old call back to the text that was
+      sent. Checkpoint 3 builds it that way.
+
+## Q34 · upstream-defect · blocking: no
+
+**Raised at** checkpoint 3 of #provider-layer, 2026-09-24.
+<!-- spec: provider-layer -->
+
+In `hora-skills-ort-renchan 0.2.1`, `hor-ai-prompt-document-store` states that the backup mixin
+**"copies the pre-change row"** into the `*Bk` sink on `.save()`. The sibling
+`hor-sequelize-model` in the same package describes the opposite: an `afterSave` clone of the
+newly saved attributes.
+
+The installed code settles it —
+`node_modules/@openreachtech/renchan-sequelize/lib/models/mixins/BackupMixinModel.js`:
+
+```js
+this.afterSave(async (entity, options) => {
+  const values = Object.fromEntries(
+    Object.keys(this.getAttributes())
+      .filter(key => !accessoryKeys.includes(key))
+      .map(key => [key, entity.get(key)])
+  )
+  await this.BackupModel.build(values).save({ transaction: options.transaction })
+})
+```
+
+`entity.get(key)` after the save is the **new** value. `hor-sequelize-model` is right;
+`hor-ai-prompt-document-store` is wrong, and the two skills ship in one package.
+
+- [x] worked around — the digest is corrected, the skill is not
+      `.hora/digests/hor-ai-prompt-document-store.md` now states the verified behaviour and marks
+      the skill's sentence as wrong, so no implementer reads the false version. The skill itself
+      is the package's to fix.
+
+      **It is not a wording slip.** Which row lands in the sink decides whether a stored version
+      identifier can address one — [[Q33]] turned on exactly this, and the wrong reading would
+      have made a recorded `prompt_version` point at the version *before* the one that was used.
+
+## Q35 · undefined-detail · blocking: no
+
+**Raised at** checkpoint 3 of #provider-layer, 2026-09-24.
+<!-- spec: provider-layer -->
+
+§17 opens with a provenance claim that is **wrong for three of its eleven tables**:
+
+> Ported as a set from `annex/reference/leepai/`. The tables below are that store; their column
+> detail is in the extract, and the port is expected to match it rather than restate it.
+
+`specs/1.0.0/annex/reference/leepai/sequelize/models/` holds exactly 20 files, every one of them
+`AiAgent*` or `AiTool`. **There is no `AiProvider.js`, no `AiModel.js` and no capability model**
+— and none in `rgp-yazaki/` or `linoa/` either. Two units found the absence independently, from
+opposite ends, before it was checked centrally.
+
+So the catalog the whole feature pivots on — the provider, the model, and the model's limits —
+has no extract to be matched against, while the sentence says it does.
+
+- [x] resolved — nothing was blocked, because the spec states those columns itself
+      §17's own row names them: `ai_providers` (`name`), `ai_models` (`AiProviderId`, `name`,
+      `target_model_name`, `is_default`, `is_active`, `display_order`), `ai_model_capabilities`
+      (`AiModelId`, `context_window_token`, `max_output_token`). That list is the authority for
+      these three, and the units were told so.
+
+      **What is wrong is the claim, not the content.** "Match the extract rather than restate it"
+      reads as an instruction to go and find something, and an implementer who takes it at its
+      word either stalls or — worse — fills the gap from the nearest thing that looks similar.
+      The sentence holds for the agent and tool tables; it should say so rather than covering the
+      whole set.
+
+## Q36 · undefined-detail · blocking: no
+
+**Raised at** checkpoint 3 of #provider-layer, 2026-09-24. **A defect in a brief, not in the product.**
+<!-- spec: provider-layer -->
+
+Two instructions in this checkpoint's unit briefs were wrong, and both were caught by an
+implementer checking the repository instead of trusting what it was handed.
+
+| What the brief said | What the tree says |
+|---|---|
+| "index names come from a `SHORT_COLUMN_NAME` map" | **no migration in this repository defines one.** `.hora/digests/hor-sequelize-migration.md` says to shorten only when a name runs long, and not to shorten when it fits |
+| — | `ai_models` must be `BIGINT`, because `ai_model_calls.AiModelId` is. Had one unit typed the catalog `ID_INTEGER` to match the sibling masters, **SQLite would have accepted the mismatch silently** and it would have surfaced on MariaDB |
+
+- [x] resolved — the briefs were corrected mid-run and the second risk was closed before it landed
+      The `SHORT_COLUMN_NAME` instruction came from the always-on ORT rules, which describe a
+      different repository's migrations. It was carried into the brief as though it were this
+      repository's convention.
+
+      **Worth keeping because of how it was caught.** Nothing in the process would have flagged
+      either one: a wrong index-naming instruction produces working code, and the integer/bigint
+      mismatch produces a green suite on the test engine and a failure on the one that runs live
+      — which the non-functional requirements already name as this project's known engine gap.
+      Both were found because an implementer treated its brief as a claim to check rather than an
+      order to follow.
+
+## Q37 · undefined-detail · blocking: no
+
+**Raised at** checkpoint 3 of #provider-layer, 2026-09-24.
+<!-- spec: provider-layer -->
+
+§17's table list carries `ai_agent_available_ai_tools` — which agent may use which tool — and
+**no `ai_model_tool_assignments`**, which is the other half of the same subject: which tool a
+given vendor's model can actually serve.
+
+The two are genuinely different relations and the unit that built the first one settled that
+rather than merging them:
+
+| | Binds | Says |
+|---|---|---|
+| `ai_agent_available_ai_tools` | tool ↔ **agent** | this service is permitted to use this tool, whether it is on, whether it is offered unasked. A product decision |
+| `ai_model_tool_assignments` | tool ↔ **model** | this vendor's model supports this tool. A capability fact |
+
+**They are allowed to disagree** — a model may support web search while a given agent is not
+permitted to use it — which is exactly why one cannot stand in for the other.
+
+The extract carries both as separate models, and its agent-update path uses the second to
+**refuse a tool the model cannot serve**. This version has no such table, so that check cannot
+be written here.
+
+- [x] resolved — read as deliberate, and consistent with the rest of §17
+      §17 states plainly that there is **no operation for editing a prompt this version**: a
+      change is a direct database write by an operator on the machine. The refusal the extract
+      performs happens at exactly that write, in a mutation this version does not build — so the
+      table whose only stated use is backing that refusal has nothing to back.
+
+      **Recorded rather than passed over, because the absence is load-bearing the moment an admin
+      console arrives.** §4 already defers that console; when it lands, the tool-choice it offers
+      an operator has no capability table to validate against, and the missing check is a data
+      integrity hole rather than a missing convenience. The feature that builds the console owes
+      this table, or owes a stated reason not to.
+
+## Q38 · undefined-detail · blocking: no
+
+**Raised at** checkpoint 3 of #provider-layer, 2026-09-24.
+<!-- spec: provider-layer -->
+
+Three gaps in §17's catalog, found while building it. None blocked the work; each was decided
+and the decision is recorded here rather than left in a migration comment.
+
+**1. `ai_providers` is given one column, and one column is not a reference master.** §17 names
+`name` alone. Every reference master in this repository and in `hor-database-design`'s own
+standard set carries `name` / `display_name` / `display_order` / `is_active`, and the two this
+project already built (`ai_run_categories`, `ai_run_statuses`) carry exactly those. The table was
+built with all four. **`is_active` in particular is the only honest way to retire a vendor**
+without deleting a row that recorded history points at.
+
+**2. `is_default` has no stated scope.** The criterion "turning a real provider on is a
+deliberate change of one setting" implies exactly one default — but the spec never says whether
+that is one default model per installation or one per provider, and the two need different
+constraints. **No constraint was built**, deliberately: a UNIQUE index on a boolean would forbid
+a second *non*-default row, so there is no correct column-level expression of either reading. It
+is a rule the selection code enforces, and it needs a spec line before that code is written.
+
+**3. The stub's own capability figures are unstated.** The spec requires the stub path to be the
+real path, so it needs a capability row — but nothing says what a stub's context window and
+output ceiling are. Seeded as `200000` / `8192`, chosen so the payload gets **built against
+real-sized numbers** rather than skipped; a default installation has to exercise that building.
+A spec line would be better than an implementer's judgment.
+
+- [x] recorded — the work proceeded on the readings above, all three stated
+      Each is a decision somebody can overturn cheaply now and expensively later. The first two
+      are schema; the third is a seeded figure.
+
+## Q39 · undefined-detail · blocking: no
+
+**Raised at** checkpoint 3 of #provider-layer, 2026-09-24. **A defect in the briefs, again mine.**
+<!-- spec: provider-layer -->
+
+`.hora/digests/hor-sequelize-migration.md` states the filename rule plainly: `{seq}` is a
+**"6-digit zero-padded running number"**. The unit briefs did not say so, and four of the five
+units derived the number from their assigned timestamp slot instead — producing two `000004`
+files, two `000005` files and so on across different timestamps.
+
+**Nothing breaks**: sequelize-cli orders on the timestamp, which is unique per file. What breaks
+is the number's meaning — a running number that does not run tells a later reader nothing.
+
+- [x] resolved — renumbered at the gather to one running sequence
+      One unit followed the rule from the digest without being told, and its numbering is the one
+      the others were brought into line with.
+
+      **The pattern is the same as [[Q36]]**: the brief asserted a convention it had not checked,
+      and the unit that checked was right. Two for two in one checkpoint is worth noticing — a
+      brief is a claim, and a unit that treats it as an order inherits its author's mistakes.
+
+## Q40 · reinvention · blocking: no
+
+**Raised at** checkpoint 5 of #provider-layer, 2026-09-24. **The catalog check, on the record.**
+<!-- spec: provider-layer -->
+
+`@openreachtech/hora-ecosystem` **v0.1.0**, 33 tracked packages of 46 listed. Searched once for
+the whole checkpoint, before anything was written.
+
+**The catalog contains no AI or LLM content at all** — a grep of all 66 doc files for
+`anthropic|openai|gemini|claude|LLM|agent loop|prompt|token count` returns nothing in the
+domain. So the five pieces this checkpoint builds are judged against transport, loading and
+persistence packages, not against anything that knows what a model is.
+
+| Piece | Verdict |
+|---|---|
+| model-processor abstraction | **part** — `mentsu-rocket-client` gives the Payload/Launcher/Capsule triad, auth builders and an overridable `.get:fetch`; `mentsu-schema` gives the canonical shape. Every LLM semantic is unwritten |
+| deterministic stub driver | **nothing tracked** |
+| run-time processor loader | **part** — `mentsu-deep-loader`'s `DeepCtorsLoader` does discovery and constructor filtering; it returns an array with no lookup key, so name→class is unwritten |
+| prompt composer | **nothing tracked** |
+| model-call recorder | **part** — `renchan-sequelize` for the row; timing, token extraction and raw-body handling unwritten |
+
+**`mentsu-agent-loop-core` is not in the search space, and that is a decision rather than a
+gap.** `config/lookup.js` marks it `false` and `config/rulesets.js` turns off `mentsu-agent-*`
+wholesale, so the catalog ships no specification of its classes. The reference extract this
+feature ports from *does* use it, and this repository's own skills name it — but the catalog
+cannot say anything about it, so nothing here leans on it. **It belongs to
+`#asset-media-extraction`**, which builds the agent loop; this feature builds the layer under it.
+
+**A trap worth naming, because it nearly matches.** `mentsu-random-text-generator` looks like
+the answer to "a deterministic stub", and is not: its `seedString` is the **character set** to
+draw from, not a random seed, and its output is non-reproducible by design. [[Q9]] already
+recorded a near-miss with the same package from the other direction.
+
+- [x] recorded — three pieces reuse a tracked package, two are written fresh
+      The two written fresh are the stub driver and the prompt composer, and the catalog was
+      searched for both by description rather than by name before that was concluded.
+
+## Q41 · reinvention · blocking: no
+
+**Raised at** checkpoint 5 of #provider-layer, 2026-09-24.
+<!-- spec: provider-layer -->
+
+The catalog's answer for the loader's discovery half was `@openreachtech/mentsu-deep-loader`'s
+`DeepCtorsLoader`. **That package is not installed** — the backend's `node_modules/@openreachtech/`
+holds eleven packages and it is not among them.
+
+- [x] resolved — `DeepBulkClassLoader` from `@openreachtech/renchan`, which is installed
+      It covers the same need through `loadClasses({ filterFunc })`, it is what the
+      `hor-multi-llm-provider` skill itself names, and it is what **both** reference extracts use.
+      The only thing `DeepCtorsLoader` adds is a predicate expressible in one line. Taking a new
+      declared dependency for that was the worse trade.
+
+      The implementer isolated discovery into three methods so the swap stays a two-method change
+      if the catalog's pick is ever preferred, and flagged the policy call rather than burying it.
+
+**The general point is worth more than this instance: the catalog says what is *tracked*, not
+what is *installed*.** A "a tracked package does this" verdict is a lead, not an instruction, and
+it needs an install check before an implementer acts on it. Two of the five briefs at this
+checkpoint said "check it is actually installed before importing it" and the units that hit the
+gap did exactly that. **The catalog-check step should produce the install status alongside each
+verdict**, or every checkpoint pays this twice.
+
+## Q42 · missing-acceptance · blocking: no
+
+**Raised at** checkpoint 5 of #provider-layer, 2026-09-24.
+<!-- spec: provider-layer -->
+
+§17's acceptance criteria cover the default installation answering on the stub, the stub being
+deterministic, turning a real provider on, prompts being data, history staying readable, and what
+a model call records. **None of them says what happens when a model name resolves to no
+processor** — a row pointing at a driver nobody wrote, or a misspelling.
+
+The loader answers `null` and leaves the decision to its caller, deliberately: falling back to the
+seeded default would let a run be **answered by a model nobody asked for**, with the record saying
+so only in hindsight.
+
+- [x] recorded — the behaviour is decided and tested; the criterion is still missing
+      A criterion along the lines of *"a run naming a model no processor serves fails with a reason
+      code, and no other model answers it"* would pin it and give `#run-execution` — which maps
+      failures to reason codes — something to test against. As it stands the safe behaviour rests
+      on an implementer's judgment rather than on anything stated.
+
+## Q43 · contradiction · blocking: no
+
+**Raised at** checkpoint 5 of #provider-layer, 2026-09-24. **A design decision, not an implementation one.**
+<!-- spec: provider-layer -->
+
+§17 asks for something the table in the same section has no column for.
+
+> **line 701, the criterion:** each model call is recorded with its model, its input and output
+> token counts, and **its outcome**
+>
+> **line 660, the table:** `AiRunId`, `AiModelId`, `action_name`, `reading_index`,
+> `prompt_version`, `latency_milliseconds`, `input_token_count`, `output_token_count`,
+> `response_body` (NULL once purged), `called_at`
+
+**There is no outcome, status or succeeded field.** So a call's outcome is readable only from
+`response_body` — and that is the one column the 30-day content purge empties, while the row
+itself is kept for 730 days.
+
+**After the purge, a failed call and a purged successful call are indistinguishable.** The model,
+the version, the token counts and the latency all still answer; whether the call worked does not.
+That weakens both use cases the row exists for: billing reads calls a run spent, and reproduction
+reads which of them produced the result.
+
+**This is the third time this exact shape has been found in this product**, and the first two were
+caught before any code existed — stage 6 of the spec found `rejected_items` storing dropped values
+on the long clock, and stage 7 found the confidence figures living only in `result_body`. Same
+defect each time: **something the decision trace needs, held only in a column the content purge
+empties.**
+
+- [x] recorded — not fixed, and deliberately not guessed at
+      Two ways out, and they lead to different features:
+
+      - **the row gains an outcome field** — a `succeeded` boolean or an `AiModelCallStatus`
+        master. That is a column, so a migration against checkpoint 3's work, in this feature
+      - **the spec states that a call's outcome lives in the step trace** (`ai_run_steps`, whose
+        `outcome_code` already exists), and this criterion is checked at that feature's gate
+        instead
+
+      The implementer closed the criterion as far as the schema allows — model, both token counts,
+      and the body — and wrote a test describe for the purged shape (`when the call produced no
+      body`) that documents the gap honestly rather than papering over it. **A recorder that had
+      quietly copied an outcome out of the body would pass the first describe and fail that one.**
+
+## Q44 · contradiction · blocking: no
+
+**Raised at** checkpoint 5 of #provider-layer, 2026-09-24. **It reopens [[Q33]]'s answer.**
+<!-- spec: provider-layer -->
+
+`ai_model_calls.prompt_version` is **one** column, and this version versions **two** texts.
+
+Both `ai_agent_default_instructions` and `ai_agent_role_instructions` carry their own `saved_at`,
+and each writes to a sink of its own — confirmed in the built schema: two live tables, two `*Bk`
+tables, one `prompt_version` column. **One `STRING(32)` cannot address a row in two sinks.**
+
+Q33 settled that `prompt_version` is "the `saved_at` of the instruction in force". That reading
+assumed one instruction. There are two, and the role instruction is the provider's system prompt —
+the text that most changes what a model answers.
+
+The implementer took the **default instruction's** `saved_at`, on the reading that
+`ai_agent_default_instructions` is "the agent's own instruction" and `prompt_version` names the
+prompt. The consequence, which nobody had written down:
+
+> **Reword only the role, and `prompt_version` does not change.** A months-old result reproduced
+> from it comes back with the wrong system prompt.
+
+That is exactly the failure §17's third use case — "ORT reproduces a result from months ago,
+because the prompt version each call used is recorded against it" — exists to prevent. The
+identifier would be recorded, resolvable, and pointing at the wrong pair.
+
+- [x] recorded, not fixed — and the implementation is the safest reading available
+      Two ways out, and neither is an implementer's to pick:
+
+      - **a second column** — the role's `saved_at` recorded beside the instruction's, so the pair
+        addresses both sinks. A migration against checkpoint 3's table, in this feature
+      - **one identifier covering both** — a value derived from the two `saved_at`s together, or a
+        generation marker the agent itself carries and both texts write to. A design decision and
+        a spec line
+
+      Until then the recorded version addresses the instruction and says nothing about the role,
+      and that limitation is now written down rather than latent.
+
+      **The same shape as [[Q43]] one unit over**: a value the long-lived trace is supposed to
+      answer with, which the schema cannot actually hold.
+
+**Checkpoint 8's audit found it is worse than two texts — it is three.** Three things decide what a
+model is sent and what it may answer with: the instruction, the role, and the **tool schemas**. Only
+the first is versioned in a call record.
+
+And the tool schemas are further behind than the role: `ai_tools` carries a `saved_at` column but
+**no `ai_tools_bk` table and no `BackupMixinModel`** — verified against the twelve new migrations,
+none of which creates one. So a tool schema has no history at all, not merely no marker in the call
+record.
+
+Since a tool schema decides **what a step is allowed to hand back**, a dispute about an old run
+cannot be settled from the record: reproduction takes the right instruction and then silently the
+current role and the current tool schemas. The two ways out named above now have a third piece —
+`ai_tools` needs the same write-once sink its sibling instruction tables already have.
+
+## Q45 · undefined-detail · blocking: no
+
+**Raised at** checkpoint 5 of #provider-layer, 2026-09-24. **The third brief defect this feature.**
+<!-- spec: provider-layer -->
+
+The unit brief for the prompt composer stated that `ai_tools` and `ai_agent_available_ai_tools`
+"exist and are seeded". **They exist and nothing seeds them** — no row, in any tier. The master
+agent seeder writes the agent and its two instruction tables and stops there.
+
+The implementer checked rather than believed it, and the shortfall was real: the tool half of its
+work had nothing to test against, and an "it returned an empty array" test would have passed
+against a composer that hard-coded `[]`.
+
+- [x] resolved — a development-tier fixture suite, and a refusal to invent the real one
+      It added obviously-fake agents and tools under `sequelize/seeders/development/`, which is
+      what that tier exists for, and **declined to add master-tier tool rows**: what a step of the
+      asset-media-extraction run may return is that service's own schema, and inventing it here
+      would install a baseline nobody designed and leak into `#asset-media-extraction`.
+
+      **Still owed by whichever feature owns the real tool schema: a master-tier `ai_tools` row and
+      its binding.** Without one, a default installation has an agent permitted to use no tools at
+      all — which passes every test written here and fails the first real run.
+
+      Three brief defects in one feature ([[Q36]], [[Q39]], and this) — each asserting a fact the
+      brief had not checked, each caught by the unit that checked. The pattern is stable enough to
+      act on: **a brief should state what it verified and what it is assuming**, so a unit knows
+      which half to test before leaning on it.
+
+## Q46 · eslint-exception · blocking: no — **fail-loud**
+
+**Raised at** checkpoint 5 of #provider-layer, 2026-09-24.
+<!-- spec: provider-layer -->
+
+`app/tools/BaseAiModelProcessor.js` carries **one inline disable, for one rule**:
+
+```js
+// eslint-disable-next-line no-restricted-syntax -- Template-Pattern base class; see the comment above.
+```
+
+**It is a genuine contradiction between two of this project's own rules.**
+
+| | |
+|---|---|
+| `hoc-classes-prohibits` permits it | *"A design such as an abstract base class that holds no state itself while its derived classes hold the properties (state) is not considered a class without state (treated the same as the Template Pattern)."* |
+| the ESLint selector forbids it | `ClassDeclaration[superClass=null]:not(:has(MethodDefinition[kind=constructor]))` — it fires on **any** root class with no constructor assigning to `this`, which is exactly the shape of a Template-Pattern base at the root of a hierarchy |
+
+**There is no state to add.** `.create()` must take no argument, because the processor loader calls
+it bare while scanning the directory — and that is the property making a keyless driver an
+**ordinary subclass** rather than a special case, which §17's first criterion rests on. Adding a
+property to satisfy the linter would be inventing state to defeat a rule that is trying to prevent
+invented state.
+
+`eslint.config.js` gained the file in its existing per-file exception block, so the disable comment
+itself is accepted; the block carries the reasoning.
+
+- [x] recorded — one rule, one line, one file
+      **Removal condition:** the selector gaining a way to admit a root class whose subclasses hold
+      the state — or this base acquiring real state, which would mean the abstraction changed.
+
+## Q47 · undefined-detail · blocking: no
+
+**Raised at** checkpoint 5 of #provider-layer, 2026-09-24.
+<!-- spec: provider-layer -->
+
+The always-on testing rules name `expect.each(actual).toBe(expected)` and
+`expect.deepContaining(expected)` as ORT Jest extensions available in this repository. **They are
+not.**
+
+`tests/setup-after-env.js` registers `globalThis.jest`, `globalThis.constructorSpy` and
+`globalThis.sequelizeActivator`, and calls `expect.extend` **never**. The packages that provide
+them — `@openreachtech/jest-expect-each`, `@openreachtech/jest-deep-containing` — are in neither
+`package.json` nor `node_modules`. `expect.each(received)` would be a `TypeError` at run time.
+
+- [x] resolved — found by a unit checking before using it, on my instruction to use it
+      I told an implementer to assert a universal property with `expect.each`, citing the rule. It
+      checked the setup file first, found the extension absent, and picked another legal shape that
+      keeps the same statement rather than weakening the assertion to "at least one entry matches".
+
+      **The rules describe a family of ORT repositories, and this one is younger than the rest.**
+      Two of the three extensions they promise are not wired here. Worth knowing before any future
+      test leans on one — and worth adding the two packages if the extensions are wanted, since the
+      convention plainly expects them.
+
+## Q48 · undefined-detail · blocking: no
+
+**Raised at** checkpoint 8 of #provider-layer, 2026-09-24. **Accepted, not fixed.**
+<!-- spec: provider-layer -->
+
+Two audit findings accepted deliberately.
+
+**[LOW] The processor pool is a code-execution surface.** `DeepBulkClassLoader.loadClasses()` runs
+`await import()` on **every** `.js` it finds and filters afterwards — so the top-level code of a file
+that is not a processor executes anyway. `loadFileNames` recurses through `fs.statSync().isDirectory()`,
+which **follows symlinks**, so a symlink in the pool walks the loader out of the source tree. And
+`createAsync({ poolPath })` takes the path as a parameter.
+
+- [x] accepted
+      An attacker who can write a file into the application's source tree already has code execution
+      by editing any file, so the marginal risk is the three points above. Today the pool holds one
+      file and **`createAsync()` is called from no boot path at all** — only from tests.
+
+      **Owed by whichever checkpoint wires it to a boot path:** import only files matching an explicit
+      name pattern or allow-list, refuse symlinks and anything resolving outside the pool, and never
+      take `poolPath` from configuration or input.
+
+**[LOW/INFO] The stub's answer is an unsalted digest of the whole request, and that is what is
+recorded.** `response_body` receives `stub-answer:<sha256(canonical request)>`, so anyone who can read
+that column and guess a candidate request can confirm the guess by recomputing — an offline
+confirmation oracle over low-entropy request content.
+
+- [x] accepted, and the auditor's own recommendation was to accept
+      Salting with an installation-local value would close it and would break the cross-installation
+      determinism the spec requires of the stub. The digest's **input is never emitted** — verified:
+      the canonical text is used for its length and never stored — and `response_body` is the one
+      column the 30-day purge empties.
+
+## Q49 · contradiction · blocking: no
+
+**Raised at** checkpoint 8 of #provider-layer, 2026-09-24. **Two rule sources disagree, and I followed the wrong one.**
+<!-- spec: provider-layer -->
+
+How a migration creates several indexes is stated twice, oppositely:
+
+| Source | Says |
+|---|---|
+| `.claude/skills/hor-sequelize-migration/references/indexes.md:33`, and its digest | **"Multiple indexes → `Promise.all`; a single one → `await` directly"** |
+| `D:/ORT/rules/migrations-and-seeders.md:48` (and its `~/.claude` twin) | **"Indexes: sequential `await queryInterface.addIndex(...)` — never `Promise.all`."** |
+
+**The equipped skill wins.** `D:/ORT/CLAUDE.md` line 7: *"a project's own `./CLAUDE.md` and
+`.claude/` take precedence on conflict."* The rule file is the ORT-wide set; the skill is what this
+project equips.
+
+- [x] resolved for this repository — all four multi-index migrations now use `Promise.all`
+      **I instructed an implementer to make two of them sequential**, citing the always-on rule as
+      though it governed. It did as asked, then read both sources, found they contradict, and said
+      so in its report rather than leaving two migrations disagreeing with the other two. I reverted
+      both.
+
+      **This is the fourth brief defect of this feature** — after [[Q36]], [[Q39]] and [[Q45]] — and
+      the first where the instruction actively made the code worse rather than merely being
+      unnecessary. The other three asserted something unverified; this one asserted the losing side
+      of a conflict it had not noticed was a conflict.
+
+      **What is still owed, and is not this feature's:** the two rule sources should be reconciled at
+      the source, since the next migration written in any ORT project meets the same fork. A rule
+      file that contradicts an equipped skill is worse than either answer alone, because whoever
+      reads only one of them is confident.
+
+## Q50 · undefined-detail · blocking: no
+
+**Raised at** checkpoint 8's re-audit of #provider-layer, 2026-09-24. **Two LOWs, accepted with obligations.**
+<!-- spec: provider-layer -->
+
+**1. A migration was edited in place, and an already-migrated database will never receive the
+change.** The UNIQUE index on `ai_tools.name` was added to `20260924100004-000008` rather than in a
+new migration — permitted, because 1.0.0 is unreleased and `/hora-plan`'s rule allows editing an
+existing migration until a version ships.
+
+Any database that already recorded that filename in `SequelizeMeta` **will not get the index, and
+nothing will say so.** Locally this is invisible: `db:teardown` deletes the SQLite file and
+`db:setup` migrates from scratch on every suite run.
+
+- [x] accepted here, owed at deployment
+      No deployed database exists for this version. **The obligation is the release's:** whoever
+      first migrates a long-lived environment past this point must confirm the index is present, or
+      add a separate add-index migration. Recorded because the failure is silent — a missing UNIQUE
+      constraint does not announce itself; it just lets a duplicate in one day.
+
+**2. The rewritten `_orders` instruction tests assert a positional, accumulating array.** Each
+expects the sink to hold exactly the seeded baseline plus the generations those two cases wrote, in
+order.
+
+- [x] accepted
+      **Any future test that saves an instruction of that agent — in any category, in any order —
+      breaks them**, and the run-order barrel's comment is the only place that constraint is
+      written down. The alternative (asserting only the newest row) would drop the accumulation
+      claim, which is the whole point: one generation in the sink proves a wording arrived, two
+      prove the sink **appends rather than replaces**.
+
+      The re-audit judged the actual flakiness risk **low** — each case is its own jest test with a
+      `findOne` and a `findAll` between saves, so sub-millisecond spacing is unlikely, and only the
+      `AiAgent` category writes those rows. The fragility is about future edits, not about timing.
+
+
+## Q51 · convention-violation · blocking: no
+
+**Raised at** checkpoint 8 of #provider-layer, 2026-09-24. **Found by the orchestrator, fixed in place.**
+<!-- spec: provider-layer -->
+
+**#provider-layer minted 48 explicit row ids inside #run-contract's id block.** `hor-bank-id` splits
+an 8-digit id into a **3-digit prefix** and 5 free digits. `#run-contract` holds `100`,
+`#provider-layer` holds `101` (`tsdg-ai-backend/.hora/id-bank.json`). Every id from `10020001`
+through `10090016` reads as prefix `100` — #run-contract's — and was written by #provider-layer's
+own commits (`eea8579`, `680f543`) and by the checkpoint 8 fix pass.
+
+**The root cause is not the agents'.** The skill states that the orchestrator allocates once per
+feature and **hands the prefix to every agent working in the repository**, and that agents never
+call the skill themselves. The prefix was allocated at checkpoint 3 and then left out of every
+later unit brief, so each unit invented a block that looked free. Two independent units reached for
+the same wrong shape — a **4-digit** block prefix — which is the tell that the brief, not the
+reader, was missing the rule.
+
+- [x] fixed
+      All 48 literals were remapped into `101`, mechanically (`100N0RRR` -> `1013{N-2}RRR`), across
+      the dev seeder and four test files. The new free parts all fall in `30000`-`37999`; the `101`
+      ids already in use are `00001`, `10001`, `20001`, `50001`, `60001`, `70001`, `80001`, `90001`,
+      so nothing collides. Database refreshed, lint clean, 1195 tests green.
+
+      **Owed for the remaining nine features:** the row-id prefix goes into every unit brief, stated
+      as the 3-digit prefix with the 5 free digits spelled out. A brief that omits it produces this
+      defect again, silently, because a squatted id only fails when the other owner later picks the
+      same number.
+
+**A second record, about this repair itself.** The orchestrator's first edit to the two instruction
+models used a regex that matched more than intended and **deleted the whole body of
+`setupHooks()`**, including the `beforeSave` stamping hook. It was caught by the suite (16 red, with
+`savedAt` coming back as the caller's own value), not by review. The hook was **reconstructed**, not
+recovered: the fix pass's version was never committed and its output file was empty, so the logic is
+restored exactly but **the surrounding comment is newly written**. It states the same three things
+the original did — why the stamp is the server's, why it is row-derived, and what it does not cover.
+
+## Q52 · undefined-detail · blocking: no
+
+**Raised at** checkpoint 8 of #provider-layer, 2026-09-24.
+<!-- spec: provider-layer -->
+
+**#provider-layer's `AiModelCallRecorder` order test reads #run-contract's seeded rows.** It
+references ai_run ids `10010001`, `10010002`, `10010004`, `10010005`, which
+`20260923100004-000002-ai_runs.cjs` seeds under prefix `100`.
+
+Two equipped rules point opposite ways here. The ORT testing rule says a DB-touching test
+**references real seeded ids** rather than building fixtures; `hor-bank-id` says **do not read or
+reason about another requester's rows**. Both readings are defensible, and the skill's own example
+settles half of it: a prefix is not scoped to one table, so #provider-layer may seed its own
+`ai_runs` rows at `101` and reference those.
+
+- [ ] left as it stands, deliberately
+      **No collision hazard exists today** — a reference writes nothing, and the ids it names are
+      seeded by a feature that is accepted and closed. What exists is a **coupling** hazard: if
+      #run-contract ever renumbers its seeder, this test breaks for a reason that has nothing to do
+      with the code under test.
+
+      Not changed here because the alternative — a second `ai_runs` dev seeder owned by
+      #provider-layer — collides with the "one table per file" seeder rule, and choosing between two
+      equipped rules is not checkpoint 8's to decide alone.
+
+## Q53 · tooling · blocking: no
+
+**Raised at** checkpoint 8 of #provider-layer, 2026-09-24. **Project-level, not this feature's.**
+<!-- spec: none -->
+
+**The backend's own `npm test` and `npm run db:refresh` do not run on this Windows machine.** npm
+executes scripts through `cmd.exe` here, and both scripts are written for a POSIX shell:
+
+- `db:refresh` opens with `export NODE_ENV=development`, which cmd.exe answers with
+  `'export' is not recognized as an internal or external command`.
+- `db:setup` is `sequelize-cli db:migrate;` — cmd.exe does not treat the trailing `;` as a
+  terminator, so sequelize-cli receives the literal argument `db:migrate;` and prints its usage
+  text with `Did you mean db:migrate?`.
+
+`test.sh` itself is bash and is fine; it fails only because it calls those npm scripts.
+
+**Why it is worth recording rather than working around silently.** `/hora-accept`'s step 2 runs
+"that repository's own test command" — so a run that takes `npm test` at face value on Windows gets
+a non-zero exit that looks like a suite failure and is not one. Every suite run in this session has
+had to be reconstructed by hand:
+
+```
+export NODE_OPTIONS="--experimental-vm-modules"; export NODE_ENV=development
+rm -f sequelize/storage/*.sqlite3
+npx sequelize-cli db:migrate
+npx sequelize-cli db:seed:all --seeders-path sequelize/seeders/dev-master
+npx jest --passWithNoTests tests/empty/__tests__/
+npx jest --passWithNoTests --detectOpenHandles tests/empty/_orders/
+npx sequelize-cli db:seed:all --seeders-path sequelize/seeders/development
+npx jest --passWithNoTests tests/__tests__/
+npx jest --passWithNoTests --detectOpenHandles tests/_orders/
+```
+
+- [ ] open
+      **Two candidate fixes, and the choice is the team's.** `npm config set script-shell bash` on
+      each Windows machine leaves the scripts alone but makes a green run depend on machine-local
+      configuration that nothing checks. Rewriting the scripts to be shell-neutral — `cross-env` for
+      the variables, dropping the stray `;` — costs an edit and a dependency but makes the command
+      in `package.json` the command that actually runs, everywhere.
+
+      **Reconstructing the pipeline by hand is not a third option.** The `_orders` tests write, so
+      they need a re-seed before every run; a hand-assembled sequence that forgets one produces
+      failures that look like defects. That happened once in this session and cost a round of
+      diagnosis.
+
+## Q54 · undefined-detail · blocking: no
+
+**Raised at** checkpoint 8's second re-audit of #provider-layer, 2026-09-24.
+<!-- spec: provider-layer -->
+
+**The sink append is not in the same transaction as the live write.** `BackupMixinModel` appends
+through `afterSave`, which a bare `.save()` runs outside any transaction of its own. A sink write
+that fails therefore leaves the live row **already committed**: the caller is told the write failed,
+the row is reworded, and the sink does not hold that wording.
+
+The re-audit reached this for real by chaining it off two other defects, both now closed — a
+divergent `Model.update()` desynced the live marker from the sink, and `.upsert()` supplied a
+far-future marker that kept the clock behind. With `.update()` refused, the only remaining routes to
+the precondition are the bypasses the class doc already names (`.upsert()`, `queryInterface`, raw
+SQL, `save({ hooks: false })`).
+
+- [ ] open, and deliberately not fixed here
+      **Closing it properly means the mixin opening a transaction around live write + sink append**,
+      which is `@openreachtech/renchan-sequelize`'s to decide, not this feature's. Patching around it
+      in two model files would leave every other model that uses the mixin exposed and would hide
+      the real gap.
+
+      Recorded because the failure is **silent in the direction that matters**: the caller sees an
+      error and may well retry, while the row it thinks it failed to write is already live.
+
+## Q55 · tooling · blocking: no
+
+**Raised at** checkpoint 8 of #provider-layer, 2026-09-24. **Project-level.**
+<!-- spec: none -->
+
+**`sequelize/_.js` cannot boot under plain Node on Windows.** `SequelizeActivator.createAsync` walks
+`sequelize/models/` through the loader inside `@openreachtech/renchan-sequelize`, which does
+`import(<raw windows path>)`; Node answers `ERR_UNSUPPORTED_ESM_URL_SCHEME: Received protocol 'd:'`.
+
+**It is invisible in the suite**, because jest resolves those imports through babel's require
+interop and never reaches Node's ESM loader. Everything is green while the same entry point fails
+outside jest.
+
+This is the same defect class `app/tools/FileUrlDeepBulkClassLoader.js` was written for — but that
+class is wired only into `BulkAiModelProcessorsLoader` (the driver pool). The model loader is a
+different loader, inside the package, and this feature does not own it.
+
+- [ ] open
+      **What it costs today:** any script that boots the models outside jest has to be written
+      against jest instead. One diagnostic probe in this session was rewritten for that reason.
+      **What it could cost later:** the server's own boot path goes through `sequelize/_.js`, so a
+      developer on Windows cannot run the application locally at all — only its tests.
+
+      Deployment is Linux, so this is a developer-machine issue rather than a release one. The fix
+      belongs upstream in `renchan-sequelize`, the same way the pool loader was fixed here.
+
+      **Correction, from the re-audit:** a probe does **not** have to run inside jest. Only
+      `DeepBulkClassLoader`'s directory walk is blocked. Importing the model files directly with
+      `url.pathToFileURL`, then calling `SequelizeActivator.generateClient({ nodeEnv, configPath })`
+      and `SequelizeActivator.activateModels({ sequelizeClient, models })`, boots the full real
+      registry — hooks, mixins and associations — under plain `node`. Every live probe in both
+      checkpoint 8 audits ran that way. **`generateClient` is `async` and must be awaited** — the
+      brief that carried this route to checkpoint 9 omitted the `await` and had to be corrected
+      there.
+
+## Q56 · undefined-detail · blocking: no
+
+**Raised at** checkpoint 8's re-audit of #provider-layer, 2026-09-24. **Pre-existing; found while
+checking something else.**
+<!-- spec: provider-layer -->
+
+**`agent.setAiAgentDefaultInstruction(row)` throws, and the same shape applies to two more
+associations.** The setter fails with
+`SequelizeValidationError: notNull Violation: AiAgentDefaultInstruction.AiAgentId cannot be null`.
+
+The cause is Sequelize's own `hasOne` setter: when an agent already has an associated row, the
+setter detaches the old one by nulling its foreign key through `oldInstance.save()`
+(`lib/associations/has-one.js:143`). The attribute is declared `allowNull: false`, so that write
+cannot succeed.
+
+It was **not** introduced by the update-refusal commits — that path never touched `Model.update` at
+any commit, and `createAttributes` is untouched by them. The re-audit established this from the
+diff rather than by checking out an earlier commit.
+
+- [ ] open
+      **`createAiAgentDefaultInstruction(...)` works**, and it is what the application would use, so
+      nothing is blocked. But the same shape applies to `AiAgentRoleInstruction` and
+      `AiAgentDefaultModel`, and the setter is the obvious method to reach for.
+
+      **Two ways out, and neither is this checkpoint's to pick.** Allowing null on the foreign key
+      would let an orphaned instruction row exist, which the `allowNull: false` was chosen against.
+      Declaring the association so the old row is destroyed rather than detached changes what a
+      reassignment means. Whoever owns the agent data model decides.
+
+## Q57 · undefined-detail · blocking: no
+
+**Raised at** checkpoint 9 of #provider-layer, 2026-09-24. **A failed model call has no row shape,
+and widening it later costs a migration.**
+<!-- spec: provider-layer -->
+
+**`ai_model_calls` can only record a call that answered.** `latency_milliseconds`,
+`input_token_count` and `output_token_count` are all `NOT NULL`, and `saveAiModelCall` requires
+`respondedAt` besides — so a call that errored is not recorded at all, rather than recorded as
+failed.
+
+A run billed by counting the calls recorded against it therefore counts only the calls that
+answered. Verified by execution at checkpoint 9: two recorded calls, 446 billable tokens, both
+surviving a simulated content purge and a move of the run to `canceled`.
+
+**§17's own data model gives `ai_model_calls` no outcome column**, so the code matches the spec. What
+does not match is acceptance criterion 7, which says each call is recorded "with its model, its input
+and output token counts, and **its outcome**". The two can only be reconciled by reading "outcome" as
+the run's, not the call's — `ai_run_steps.outcome_code` (#run-record) plus the contract's
+`PROVIDER_CALL_FAILED`, with the existence of a call row meaning the call answered.
+
+- [x] resolved 2026-09-24 — **the reading is confirmed, and the spec now says it**
+      The owner chose the run/step reading over widening the call row. Criterion 7 was rewritten to
+      match the data model it sits beside: "each model call is recorded with its model and its input
+      and output token counts; the outcome is the run step's (`ai_run_steps.outcome_code`), and a
+      recorded call is one that answered."
+
+      **Said plainly, because it is a narrowing and not a clarification:** the old criterion required
+      an outcome on every call; the new one does not. What that costs is a per-model failure rate,
+      which nothing can now answer without adding a column. The owner was told this before choosing.
+
+      **What the choice makes newly load-bearing** — and this is why the structural gap below is now
+      escalated rather than a footnote.
+
+      **Why it is worth settling now rather than at #run-execution.** 1.0.0 is unreleased, so the
+      migration can still be edited in place; once a long-lived database has run it, adding the
+      column is a second migration on live data. Whether a failed provider call must be billed is a
+      policy question, but the row shape that would let anyone answer it is this feature's.
+
+      `ai_model_calls` carries `AiRunId`, `action_name` and `reading_index`; `ai_run_steps` carries
+      `AiRunId`, `step_index` and `step_name`. **No key joins a call to the step that made it.**
+
+      While the outcome might have lived on the call, that join was a convenience. Now that the
+      outcome lives only on the step, **the join is the sole way to answer "did this call succeed"**
+      — and it does not exist. Anyone building that read in #run-record or #run-delivery has to match
+      `action_name` against `step_name` by a convention nobody has written down.
+
+      **Owed by #run-record or #run-execution, whichever declares the step row:** either a real key
+      from a call to its step, or that convention written into §10 where both features will read it.
+      Recorded here rather than left implied, because the decision above is what made it necessary.
+
+## Q58 · undefined-detail · blocking: no
+
+**Raised at** checkpoint 9 of #provider-layer, 2026-09-24. **Two candidate settings decide which
+model answers, and nothing says which one wins.**
+<!-- spec: provider-layer -->
+
+Acceptance criterion 3 says turning a real provider on is "a deliberate change of **one** setting".
+There are two, and §17 does not rank them:
+
+- `ai_models.is_default` / `is_active` — global
+- `ai_agent_default_models.AiModelId` — per agent
+
+**Neither has a reader.** Checkpoint 9 executed `grep` over `app/` and `server/`: nothing reads
+`is_default`, `is_active` or `ai_agent_default_models`. The mechanism is #run-execution's to honor,
+so this is a question handed forward rather than a defect here.
+
+**`ai_agent_default_models` is dead surface this version.** Migration, model, `.d.ts` and association
+all exist, and the table holds **zero rows** in `master`, `dev-master` and `development` alike
+(executed count). §17 lists it as "which model an agent uses, as data" — and on every installation
+that question currently has no answer in data.
+
+- [x] resolved 2026-09-24 — **`ai_models.is_default` is the authority**
+      Chosen by the owner, and written into §17 in two places so nobody has to find this question:
+      criterion 3 now names the setting, and the `ai_agent_default_models` row now reads "Not read
+      this version".
+
+      **What that decision leaves standing:** the migration, the model, the `.d.ts` and the
+      association for `ai_agent_default_models` all remain, unread, holding zero rows. That is
+      deliberate — dropping the table and rebuilding it in a later version costs more than leaving
+      it — but a reader who meets it should find the sentence, not infer it. They now do.
+
+      **#run-execution is the feature that must honor this**, and it is the one that would otherwise
+      have made the silent mistake: reading the per-agent table while an operator flips the global
+      flag, so a run answers on a model nobody selected and still succeeds.
+
+## Q59 · undefined-detail · blocking: no
+
+**Raised at** checkpoint 9 of #provider-layer, 2026-09-24. **The spec overstates what adding a model
+costs.**
+<!-- spec: provider-layer -->
+
+§17's data model says "Adding a model is a **row**", and acceptance criterion 4 says models "are read
+from the database, and changing one needs no deployment".
+
+**Executed at checkpoint 9:** inserting `ai_providers` + `ai_models` + `ai_model_capabilities` rows
+and nothing else resolves to `null`. The model becomes usable only once a driver file is dropped into
+a pool directory. That is the right design — a vendor needs code — but the sentence reads as though a
+row alone were enough.
+
+The use case itself ("ORT adds a model without touching the **services** that use one") is met in
+full: nothing outside the driver names a vendor, and the app-facing `name` is the only key a caller
+holds.
+
+- [x] resolved 2026-09-24 — the owner read both sentences and approved them
+      §17's `ai_models` row now reads "Adding a model is a row plus one driver class; nothing that
+      *uses* a model changes", and criterion 4 gained "; adding a vendor's model still ships a driver
+      class".
+
+      The use case itself never needed changing — "ORT adds a model without touching the services
+      that use one" was met in full, and still is.
+
+## Q60 · undefined-detail · blocking: no
+
+**Raised at** checkpoint 9 of #provider-layer, 2026-09-24. **A default installation binds no tools,
+and no fixture exists for recorded calls.**
+<!-- spec: provider-layer -->
+
+Two seeding gaps, both found by executing against a rebuilt database:
+
+1. **`master` seeds no `ai_tools` and no `ai_agent_available_ai_tools`.** `composePrompt` for
+   `asset-media-extraction-agent` therefore returns `toolSchemas: []`, and the stub answers with zero
+   function calls — a run that, by the stub's own documentation, "settles nothing". Acceptance
+   criterion 1's "answers every service on the stub" is true today only in the weak sense: the path
+   completes, but it decides nothing. The tool set belongs to #asset-media-extraction (§20), so this
+   is a handover rather than a hole.
+2. **No development seeder for `ai_model_calls`.** After a clean reseed the table holds zero rows. A
+   later feature reading recorded calls — #run-delivery's `usage` block, #run-list — has no fixture.
+
+- [ ] open
+      Both are cheap now and awkward later: a test written against an empty table tends to grow its
+      own fixture, which is the thing the seeder convention exists to prevent.
+
+## Q61 · undefined-detail · blocking: no
+
+**Raised at** checkpoint 9 of #provider-layer, 2026-09-24. **Repo-wide and pre-existing, but this is
+the feature that made it matter.**
+<!-- spec: none -->
+
+**No charset or collation is declared anywhere** — not in `sequelize/config.cjs`, not in any
+migration, not in `BaseAppRenchanModel.createOptions`.
+
+Under the development SQLite dialect Vietnamese round-trips perfectly; checkpoint 9 executed exactly
+that, storing and recomposing `Hãy mô tả chiếc xe tải trong ảnh, nêu rõ màu sơn & tình trạng
+<thân vỏ>.` with diacritics and escaping intact. On MariaDB the wording tables inherit the server
+default, and a `latin1` server would mangle the very text use case 2 is about.
+
+- [ ] open
+      Not introduced by this feature, but this feature is where the Vietnamese wording now lives —
+      `ai_agent_default_instructions`, `ai_agent_role_instructions` and their sinks. The failure
+      would appear only on a live MariaDB, i.e. past every gate this project runs.
+
+## Q62 · undefined-detail · blocking: no
+
+**Raised at** checkpoint 9 of #provider-layer, 2026-09-24.
+<!-- spec: provider-layer -->
+
+**`AiRun` declares no `hasMany(AiModelCall)`.** Its associations are `ApiClient`, `AiRunCategory` and
+`AiRunStatus`.
+
+The billing read works — checkpoint 9 executed `AiModelCall.findAll({ where: { AiRunId } })` on the
+indexed column and computed the contract's `usage` block from real rows — but
+`AiRun.findOne({ include: [AiModelCall] })` throws.
+
+- [ ] open
+      Worth telling #run-delivery and #run-list before they write that block, since `include` is the
+      obvious shape to reach for and the eager-load convention in `performance.md` points straight at
+      it.
+
+## Q63 · undefined-detail · blocking: no
+
+**Raised at** checkpoint 9 of #provider-layer, 2026-09-24. **§17's digest moved; no checkpoint was
+cleared, and this records why that is a judgment rather than an oversight.**
+<!-- spec: provider-layer -->
+
+The five edits resolving Q57, Q58 and Q59 changed §17, so `provider-layer.md`'s recorded digest no
+longer matched. It was recomputed to
+`65b6124931e449a11c330953a94635c0880189755a6a880a1c659f159a3ff1f2`.
+
+**The recipe had to be recovered rather than looked up.** `hora-plan` states that digests are taken
+per section with annotation comments excluded, but not how the text is normalized. It was derived by
+brute-forcing four variants against the eleven digests already recorded and confirming one matched
+**all eleven**: the `##` heading line kept, every `<!-- … -->` line dropped, no trimming, no trailing
+newline, SHA-256 over UTF-8. Worth writing down — the next person to edit a spec section faces the
+same gap.
+
+- [x] resolved — nothing cleared, deliberately
+      Four of the five edits are clarifications: they name a setting, mark a table unread, and say
+      that adding a model also ships a driver. No table, column, operation or use case changed.
+
+      **The fifth narrows acceptance criterion 7**, and a narrowing is the direction that cannot
+      invalidate work: the code already satisfies the new wording — checkpoint 9 executed exactly
+      that — and no test was ever written against the old "outcome" clause, because §17's data model
+      never gave `ai_model_calls` a column to write it to. Nothing built against the old text exists
+      to be stale.
+
+      This is the same shape as Q28, where the spec was corrected toward the code after the
+      `cancelled` / `canceled` fix and no checkpoint was cleared either. The rule being applied is
+      the reconciliation table's last row: wording, with no change to a table, an operation or a use
+      case, records the new digest and moves on.
