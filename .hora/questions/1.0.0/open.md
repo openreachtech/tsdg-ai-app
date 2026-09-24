@@ -1246,6 +1246,20 @@ identifier would be recorded, resolvable, and pointing at the wrong pair.
       **The same shape as [[Q43]] one unit over**: a value the long-lived trace is supposed to
       answer with, which the schema cannot actually hold.
 
+**Checkpoint 8's audit found it is worse than two texts — it is three.** Three things decide what a
+model is sent and what it may answer with: the instruction, the role, and the **tool schemas**. Only
+the first is versioned in a call record.
+
+And the tool schemas are further behind than the role: `ai_tools` carries a `saved_at` column but
+**no `ai_tools_bk` table and no `BackupMixinModel`** — verified against the twelve new migrations,
+none of which creates one. So a tool schema has no history at all, not merely no marker in the call
+record.
+
+Since a tool schema decides **what a step is allowed to hand back**, a dispute about an old run
+cannot be settled from the record: reproduction takes the right instruction and then silently the
+current role and the current tool schemas. The two ways out named above now have a third piece —
+`ai_tools` needs the same write-once sink its sibling instruction tables already have.
+
 ## Q45 · undefined-detail · blocking: no
 
 **Raised at** checkpoint 5 of #provider-layer, 2026-09-24. **The third brief defect this feature.**
@@ -1329,3 +1343,297 @@ them — `@openreachtech/jest-expect-each`, `@openreachtech/jest-deep-containing
       test leans on one — and worth adding the two packages if the extensions are wanted, since the
       convention plainly expects them.
 
+## Q48 · undefined-detail · blocking: no
+
+**Raised at** checkpoint 8 of #provider-layer, 2026-09-24. **Accepted, not fixed.**
+<!-- spec: provider-layer -->
+
+Two audit findings accepted deliberately.
+
+**[LOW] The processor pool is a code-execution surface.** `DeepBulkClassLoader.loadClasses()` runs
+`await import()` on **every** `.js` it finds and filters afterwards — so the top-level code of a file
+that is not a processor executes anyway. `loadFileNames` recurses through `fs.statSync().isDirectory()`,
+which **follows symlinks**, so a symlink in the pool walks the loader out of the source tree. And
+`createAsync({ poolPath })` takes the path as a parameter.
+
+- [x] accepted
+      An attacker who can write a file into the application's source tree already has code execution
+      by editing any file, so the marginal risk is the three points above. Today the pool holds one
+      file and **`createAsync()` is called from no boot path at all** — only from tests.
+
+      **Owed by whichever checkpoint wires it to a boot path:** import only files matching an explicit
+      name pattern or allow-list, refuse symlinks and anything resolving outside the pool, and never
+      take `poolPath` from configuration or input.
+
+**[LOW/INFO] The stub's answer is an unsalted digest of the whole request, and that is what is
+recorded.** `response_body` receives `stub-answer:<sha256(canonical request)>`, so anyone who can read
+that column and guess a candidate request can confirm the guess by recomputing — an offline
+confirmation oracle over low-entropy request content.
+
+- [x] accepted, and the auditor's own recommendation was to accept
+      Salting with an installation-local value would close it and would break the cross-installation
+      determinism the spec requires of the stub. The digest's **input is never emitted** — verified:
+      the canonical text is used for its length and never stored — and `response_body` is the one
+      column the 30-day purge empties.
+
+## Q49 · contradiction · blocking: no
+
+**Raised at** checkpoint 8 of #provider-layer, 2026-09-24. **Two rule sources disagree, and I followed the wrong one.**
+<!-- spec: provider-layer -->
+
+How a migration creates several indexes is stated twice, oppositely:
+
+| Source | Says |
+|---|---|
+| `.claude/skills/hor-sequelize-migration/references/indexes.md:33`, and its digest | **"Multiple indexes → `Promise.all`; a single one → `await` directly"** |
+| `D:/ORT/rules/migrations-and-seeders.md:48` (and its `~/.claude` twin) | **"Indexes: sequential `await queryInterface.addIndex(...)` — never `Promise.all`."** |
+
+**The equipped skill wins.** `D:/ORT/CLAUDE.md` line 7: *"a project's own `./CLAUDE.md` and
+`.claude/` take precedence on conflict."* The rule file is the ORT-wide set; the skill is what this
+project equips.
+
+- [x] resolved for this repository — all four multi-index migrations now use `Promise.all`
+      **I instructed an implementer to make two of them sequential**, citing the always-on rule as
+      though it governed. It did as asked, then read both sources, found they contradict, and said
+      so in its report rather than leaving two migrations disagreeing with the other two. I reverted
+      both.
+
+      **This is the fourth brief defect of this feature** — after [[Q36]], [[Q39]] and [[Q45]] — and
+      the first where the instruction actively made the code worse rather than merely being
+      unnecessary. The other three asserted something unverified; this one asserted the losing side
+      of a conflict it had not noticed was a conflict.
+
+      **What is still owed, and is not this feature's:** the two rule sources should be reconciled at
+      the source, since the next migration written in any ORT project meets the same fork. A rule
+      file that contradicts an equipped skill is worse than either answer alone, because whoever
+      reads only one of them is confident.
+
+## Q50 · undefined-detail · blocking: no
+
+**Raised at** checkpoint 8's re-audit of #provider-layer, 2026-09-24. **Two LOWs, accepted with obligations.**
+<!-- spec: provider-layer -->
+
+**1. A migration was edited in place, and an already-migrated database will never receive the
+change.** The UNIQUE index on `ai_tools.name` was added to `20260924100004-000008` rather than in a
+new migration — permitted, because 1.0.0 is unreleased and `/hora-plan`'s rule allows editing an
+existing migration until a version ships.
+
+Any database that already recorded that filename in `SequelizeMeta` **will not get the index, and
+nothing will say so.** Locally this is invisible: `db:teardown` deletes the SQLite file and
+`db:setup` migrates from scratch on every suite run.
+
+- [x] accepted here, owed at deployment
+      No deployed database exists for this version. **The obligation is the release's:** whoever
+      first migrates a long-lived environment past this point must confirm the index is present, or
+      add a separate add-index migration. Recorded because the failure is silent — a missing UNIQUE
+      constraint does not announce itself; it just lets a duplicate in one day.
+
+**2. The rewritten `_orders` instruction tests assert a positional, accumulating array.** Each
+expects the sink to hold exactly the seeded baseline plus the generations those two cases wrote, in
+order.
+
+- [x] accepted
+      **Any future test that saves an instruction of that agent — in any category, in any order —
+      breaks them**, and the run-order barrel's comment is the only place that constraint is
+      written down. The alternative (asserting only the newest row) would drop the accumulation
+      claim, which is the whole point: one generation in the sink proves a wording arrived, two
+      prove the sink **appends rather than replaces**.
+
+      The re-audit judged the actual flakiness risk **low** — each case is its own jest test with a
+      `findOne` and a `findAll` between saves, so sub-millisecond spacing is unlikely, and only the
+      `AiAgent` category writes those rows. The fragility is about future edits, not about timing.
+
+
+## Q51 · convention-violation · blocking: no
+
+**Raised at** checkpoint 8 of #provider-layer, 2026-09-24. **Found by the orchestrator, fixed in place.**
+<!-- spec: provider-layer -->
+
+**#provider-layer minted 48 explicit row ids inside #run-contract's id block.** `hor-bank-id` splits
+an 8-digit id into a **3-digit prefix** and 5 free digits. `#run-contract` holds `100`,
+`#provider-layer` holds `101` (`tsdg-ai-backend/.hora/id-bank.json`). Every id from `10020001`
+through `10090016` reads as prefix `100` — #run-contract's — and was written by #provider-layer's
+own commits (`eea8579`, `680f543`) and by the checkpoint 8 fix pass.
+
+**The root cause is not the agents'.** The skill states that the orchestrator allocates once per
+feature and **hands the prefix to every agent working in the repository**, and that agents never
+call the skill themselves. The prefix was allocated at checkpoint 3 and then left out of every
+later unit brief, so each unit invented a block that looked free. Two independent units reached for
+the same wrong shape — a **4-digit** block prefix — which is the tell that the brief, not the
+reader, was missing the rule.
+
+- [x] fixed
+      All 48 literals were remapped into `101`, mechanically (`100N0RRR` -> `1013{N-2}RRR`), across
+      the dev seeder and four test files. The new free parts all fall in `30000`-`37999`; the `101`
+      ids already in use are `00001`, `10001`, `20001`, `50001`, `60001`, `70001`, `80001`, `90001`,
+      so nothing collides. Database refreshed, lint clean, 1195 tests green.
+
+      **Owed for the remaining nine features:** the row-id prefix goes into every unit brief, stated
+      as the 3-digit prefix with the 5 free digits spelled out. A brief that omits it produces this
+      defect again, silently, because a squatted id only fails when the other owner later picks the
+      same number.
+
+**A second record, about this repair itself.** The orchestrator's first edit to the two instruction
+models used a regex that matched more than intended and **deleted the whole body of
+`setupHooks()`**, including the `beforeSave` stamping hook. It was caught by the suite (16 red, with
+`savedAt` coming back as the caller's own value), not by review. The hook was **reconstructed**, not
+recovered: the fix pass's version was never committed and its output file was empty, so the logic is
+restored exactly but **the surrounding comment is newly written**. It states the same three things
+the original did — why the stamp is the server's, why it is row-derived, and what it does not cover.
+
+## Q52 · undefined-detail · blocking: no
+
+**Raised at** checkpoint 8 of #provider-layer, 2026-09-24.
+<!-- spec: provider-layer -->
+
+**#provider-layer's `AiModelCallRecorder` order test reads #run-contract's seeded rows.** It
+references ai_run ids `10010001`, `10010002`, `10010004`, `10010005`, which
+`20260923100004-000002-ai_runs.cjs` seeds under prefix `100`.
+
+Two equipped rules point opposite ways here. The ORT testing rule says a DB-touching test
+**references real seeded ids** rather than building fixtures; `hor-bank-id` says **do not read or
+reason about another requester's rows**. Both readings are defensible, and the skill's own example
+settles half of it: a prefix is not scoped to one table, so #provider-layer may seed its own
+`ai_runs` rows at `101` and reference those.
+
+- [ ] left as it stands, deliberately
+      **No collision hazard exists today** — a reference writes nothing, and the ids it names are
+      seeded by a feature that is accepted and closed. What exists is a **coupling** hazard: if
+      #run-contract ever renumbers its seeder, this test breaks for a reason that has nothing to do
+      with the code under test.
+
+      Not changed here because the alternative — a second `ai_runs` dev seeder owned by
+      #provider-layer — collides with the "one table per file" seeder rule, and choosing between two
+      equipped rules is not checkpoint 8's to decide alone.
+
+## Q53 · tooling · blocking: no
+
+**Raised at** checkpoint 8 of #provider-layer, 2026-09-24. **Project-level, not this feature's.**
+<!-- spec: none -->
+
+**The backend's own `npm test` and `npm run db:refresh` do not run on this Windows machine.** npm
+executes scripts through `cmd.exe` here, and both scripts are written for a POSIX shell:
+
+- `db:refresh` opens with `export NODE_ENV=development`, which cmd.exe answers with
+  `'export' is not recognized as an internal or external command`.
+- `db:setup` is `sequelize-cli db:migrate;` — cmd.exe does not treat the trailing `;` as a
+  terminator, so sequelize-cli receives the literal argument `db:migrate;` and prints its usage
+  text with `Did you mean db:migrate?`.
+
+`test.sh` itself is bash and is fine; it fails only because it calls those npm scripts.
+
+**Why it is worth recording rather than working around silently.** `/hora-accept`'s step 2 runs
+"that repository's own test command" — so a run that takes `npm test` at face value on Windows gets
+a non-zero exit that looks like a suite failure and is not one. Every suite run in this session has
+had to be reconstructed by hand:
+
+```
+export NODE_OPTIONS="--experimental-vm-modules"; export NODE_ENV=development
+rm -f sequelize/storage/*.sqlite3
+npx sequelize-cli db:migrate
+npx sequelize-cli db:seed:all --seeders-path sequelize/seeders/dev-master
+npx jest --passWithNoTests tests/empty/__tests__/
+npx jest --passWithNoTests --detectOpenHandles tests/empty/_orders/
+npx sequelize-cli db:seed:all --seeders-path sequelize/seeders/development
+npx jest --passWithNoTests tests/__tests__/
+npx jest --passWithNoTests --detectOpenHandles tests/_orders/
+```
+
+- [ ] open
+      **Two candidate fixes, and the choice is the team's.** `npm config set script-shell bash` on
+      each Windows machine leaves the scripts alone but makes a green run depend on machine-local
+      configuration that nothing checks. Rewriting the scripts to be shell-neutral — `cross-env` for
+      the variables, dropping the stray `;` — costs an edit and a dependency but makes the command
+      in `package.json` the command that actually runs, everywhere.
+
+      **Reconstructing the pipeline by hand is not a third option.** The `_orders` tests write, so
+      they need a re-seed before every run; a hand-assembled sequence that forgets one produces
+      failures that look like defects. That happened once in this session and cost a round of
+      diagnosis.
+
+## Q54 · undefined-detail · blocking: no
+
+**Raised at** checkpoint 8's second re-audit of #provider-layer, 2026-09-24.
+<!-- spec: provider-layer -->
+
+**The sink append is not in the same transaction as the live write.** `BackupMixinModel` appends
+through `afterSave`, which a bare `.save()` runs outside any transaction of its own. A sink write
+that fails therefore leaves the live row **already committed**: the caller is told the write failed,
+the row is reworded, and the sink does not hold that wording.
+
+The re-audit reached this for real by chaining it off two other defects, both now closed — a
+divergent `Model.update()` desynced the live marker from the sink, and `.upsert()` supplied a
+far-future marker that kept the clock behind. With `.update()` refused, the only remaining routes to
+the precondition are the bypasses the class doc already names (`.upsert()`, `queryInterface`, raw
+SQL, `save({ hooks: false })`).
+
+- [ ] open, and deliberately not fixed here
+      **Closing it properly means the mixin opening a transaction around live write + sink append**,
+      which is `@openreachtech/renchan-sequelize`'s to decide, not this feature's. Patching around it
+      in two model files would leave every other model that uses the mixin exposed and would hide
+      the real gap.
+
+      Recorded because the failure is **silent in the direction that matters**: the caller sees an
+      error and may well retry, while the row it thinks it failed to write is already live.
+
+## Q55 · tooling · blocking: no
+
+**Raised at** checkpoint 8 of #provider-layer, 2026-09-24. **Project-level.**
+<!-- spec: none -->
+
+**`sequelize/_.js` cannot boot under plain Node on Windows.** `SequelizeActivator.createAsync` walks
+`sequelize/models/` through the loader inside `@openreachtech/renchan-sequelize`, which does
+`import(<raw windows path>)`; Node answers `ERR_UNSUPPORTED_ESM_URL_SCHEME: Received protocol 'd:'`.
+
+**It is invisible in the suite**, because jest resolves those imports through babel's require
+interop and never reaches Node's ESM loader. Everything is green while the same entry point fails
+outside jest.
+
+This is the same defect class `app/tools/FileUrlDeepBulkClassLoader.js` was written for — but that
+class is wired only into `BulkAiModelProcessorsLoader` (the driver pool). The model loader is a
+different loader, inside the package, and this feature does not own it.
+
+- [ ] open
+      **What it costs today:** any script that boots the models outside jest has to be written
+      against jest instead. One diagnostic probe in this session was rewritten for that reason.
+      **What it could cost later:** the server's own boot path goes through `sequelize/_.js`, so a
+      developer on Windows cannot run the application locally at all — only its tests.
+
+      Deployment is Linux, so this is a developer-machine issue rather than a release one. The fix
+      belongs upstream in `renchan-sequelize`, the same way the pool loader was fixed here.
+
+      **Correction, from the re-audit:** a probe does **not** have to run inside jest. Only
+      `DeepBulkClassLoader`'s directory walk is blocked. Importing the model files directly with
+      `url.pathToFileURL`, then calling `SequelizeActivator.generateClient({ nodeEnv, configPath })`
+      and `SequelizeActivator.activateModels({ sequelizeClient, models })`, boots the full real
+      registry — hooks, mixins and associations — under plain `node`. Every live probe in both
+      checkpoint 8 audits ran that way.
+
+## Q56 · undefined-detail · blocking: no
+
+**Raised at** checkpoint 8's re-audit of #provider-layer, 2026-09-24. **Pre-existing; found while
+checking something else.**
+<!-- spec: provider-layer -->
+
+**`agent.setAiAgentDefaultInstruction(row)` throws, and the same shape applies to two more
+associations.** The setter fails with
+`SequelizeValidationError: notNull Violation: AiAgentDefaultInstruction.AiAgentId cannot be null`.
+
+The cause is Sequelize's own `hasOne` setter: when an agent already has an associated row, the
+setter detaches the old one by nulling its foreign key through `oldInstance.save()`
+(`lib/associations/has-one.js:143`). The attribute is declared `allowNull: false`, so that write
+cannot succeed.
+
+It was **not** introduced by the update-refusal commits — that path never touched `Model.update` at
+any commit, and `createAttributes` is untouched by them. The re-audit established this from the
+diff rather than by checking out an earlier commit.
+
+- [ ] open
+      **`createAiAgentDefaultInstruction(...)` works**, and it is what the application would use, so
+      nothing is blocked. But the same shape applies to `AiAgentRoleInstruction` and
+      `AiAgentDefaultModel`, and the setter is the obvious method to reach for.
+
+      **Two ways out, and neither is this checkpoint's to pick.** Allowing null on the foreign key
+      would let an orphaned instruction row exist, which the `allowNull: false` was chosen against.
+      Declaring the association so the old row is destroyed rather than detached changes what a
+      reassignment means. Whoever owns the agent data model decides.
