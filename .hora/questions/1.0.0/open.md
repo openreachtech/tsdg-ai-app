@@ -1080,3 +1080,252 @@ is the number's meaning — a running number that does not run tells a later rea
       and the unit that checked was right. Two for two in one checkpoint is worth noticing — a
       brief is a claim, and a unit that treats it as an order inherits its author's mistakes.
 
+## Q40 · reinvention · blocking: no
+
+**Raised at** checkpoint 5 of #provider-layer, 2026-09-24. **The catalog check, on the record.**
+<!-- spec: provider-layer -->
+
+`@openreachtech/hora-ecosystem` **v0.1.0**, 33 tracked packages of 46 listed. Searched once for
+the whole checkpoint, before anything was written.
+
+**The catalog contains no AI or LLM content at all** — a grep of all 66 doc files for
+`anthropic|openai|gemini|claude|LLM|agent loop|prompt|token count` returns nothing in the
+domain. So the five pieces this checkpoint builds are judged against transport, loading and
+persistence packages, not against anything that knows what a model is.
+
+| Piece | Verdict |
+|---|---|
+| model-processor abstraction | **part** — `mentsu-rocket-client` gives the Payload/Launcher/Capsule triad, auth builders and an overridable `.get:fetch`; `mentsu-schema` gives the canonical shape. Every LLM semantic is unwritten |
+| deterministic stub driver | **nothing tracked** |
+| run-time processor loader | **part** — `mentsu-deep-loader`'s `DeepCtorsLoader` does discovery and constructor filtering; it returns an array with no lookup key, so name→class is unwritten |
+| prompt composer | **nothing tracked** |
+| model-call recorder | **part** — `renchan-sequelize` for the row; timing, token extraction and raw-body handling unwritten |
+
+**`mentsu-agent-loop-core` is not in the search space, and that is a decision rather than a
+gap.** `config/lookup.js` marks it `false` and `config/rulesets.js` turns off `mentsu-agent-*`
+wholesale, so the catalog ships no specification of its classes. The reference extract this
+feature ports from *does* use it, and this repository's own skills name it — but the catalog
+cannot say anything about it, so nothing here leans on it. **It belongs to
+`#asset-media-extraction`**, which builds the agent loop; this feature builds the layer under it.
+
+**A trap worth naming, because it nearly matches.** `mentsu-random-text-generator` looks like
+the answer to "a deterministic stub", and is not: its `seedString` is the **character set** to
+draw from, not a random seed, and its output is non-reproducible by design. [[Q9]] already
+recorded a near-miss with the same package from the other direction.
+
+- [x] recorded — three pieces reuse a tracked package, two are written fresh
+      The two written fresh are the stub driver and the prompt composer, and the catalog was
+      searched for both by description rather than by name before that was concluded.
+
+## Q41 · reinvention · blocking: no
+
+**Raised at** checkpoint 5 of #provider-layer, 2026-09-24.
+<!-- spec: provider-layer -->
+
+The catalog's answer for the loader's discovery half was `@openreachtech/mentsu-deep-loader`'s
+`DeepCtorsLoader`. **That package is not installed** — the backend's `node_modules/@openreachtech/`
+holds eleven packages and it is not among them.
+
+- [x] resolved — `DeepBulkClassLoader` from `@openreachtech/renchan`, which is installed
+      It covers the same need through `loadClasses({ filterFunc })`, it is what the
+      `hor-multi-llm-provider` skill itself names, and it is what **both** reference extracts use.
+      The only thing `DeepCtorsLoader` adds is a predicate expressible in one line. Taking a new
+      declared dependency for that was the worse trade.
+
+      The implementer isolated discovery into three methods so the swap stays a two-method change
+      if the catalog's pick is ever preferred, and flagged the policy call rather than burying it.
+
+**The general point is worth more than this instance: the catalog says what is *tracked*, not
+what is *installed*.** A "a tracked package does this" verdict is a lead, not an instruction, and
+it needs an install check before an implementer acts on it. Two of the five briefs at this
+checkpoint said "check it is actually installed before importing it" and the units that hit the
+gap did exactly that. **The catalog-check step should produce the install status alongside each
+verdict**, or every checkpoint pays this twice.
+
+## Q42 · missing-acceptance · blocking: no
+
+**Raised at** checkpoint 5 of #provider-layer, 2026-09-24.
+<!-- spec: provider-layer -->
+
+§17's acceptance criteria cover the default installation answering on the stub, the stub being
+deterministic, turning a real provider on, prompts being data, history staying readable, and what
+a model call records. **None of them says what happens when a model name resolves to no
+processor** — a row pointing at a driver nobody wrote, or a misspelling.
+
+The loader answers `null` and leaves the decision to its caller, deliberately: falling back to the
+seeded default would let a run be **answered by a model nobody asked for**, with the record saying
+so only in hindsight.
+
+- [x] recorded — the behaviour is decided and tested; the criterion is still missing
+      A criterion along the lines of *"a run naming a model no processor serves fails with a reason
+      code, and no other model answers it"* would pin it and give `#run-execution` — which maps
+      failures to reason codes — something to test against. As it stands the safe behaviour rests
+      on an implementer's judgment rather than on anything stated.
+
+## Q43 · contradiction · blocking: no
+
+**Raised at** checkpoint 5 of #provider-layer, 2026-09-24. **A design decision, not an implementation one.**
+<!-- spec: provider-layer -->
+
+§17 asks for something the table in the same section has no column for.
+
+> **line 701, the criterion:** each model call is recorded with its model, its input and output
+> token counts, and **its outcome**
+>
+> **line 660, the table:** `AiRunId`, `AiModelId`, `action_name`, `reading_index`,
+> `prompt_version`, `latency_milliseconds`, `input_token_count`, `output_token_count`,
+> `response_body` (NULL once purged), `called_at`
+
+**There is no outcome, status or succeeded field.** So a call's outcome is readable only from
+`response_body` — and that is the one column the 30-day content purge empties, while the row
+itself is kept for 730 days.
+
+**After the purge, a failed call and a purged successful call are indistinguishable.** The model,
+the version, the token counts and the latency all still answer; whether the call worked does not.
+That weakens both use cases the row exists for: billing reads calls a run spent, and reproduction
+reads which of them produced the result.
+
+**This is the third time this exact shape has been found in this product**, and the first two were
+caught before any code existed — stage 6 of the spec found `rejected_items` storing dropped values
+on the long clock, and stage 7 found the confidence figures living only in `result_body`. Same
+defect each time: **something the decision trace needs, held only in a column the content purge
+empties.**
+
+- [x] recorded — not fixed, and deliberately not guessed at
+      Two ways out, and they lead to different features:
+
+      - **the row gains an outcome field** — a `succeeded` boolean or an `AiModelCallStatus`
+        master. That is a column, so a migration against checkpoint 3's work, in this feature
+      - **the spec states that a call's outcome lives in the step trace** (`ai_run_steps`, whose
+        `outcome_code` already exists), and this criterion is checked at that feature's gate
+        instead
+
+      The implementer closed the criterion as far as the schema allows — model, both token counts,
+      and the body — and wrote a test describe for the purged shape (`when the call produced no
+      body`) that documents the gap honestly rather than papering over it. **A recorder that had
+      quietly copied an outcome out of the body would pass the first describe and fail that one.**
+
+## Q44 · contradiction · blocking: no
+
+**Raised at** checkpoint 5 of #provider-layer, 2026-09-24. **It reopens [[Q33]]'s answer.**
+<!-- spec: provider-layer -->
+
+`ai_model_calls.prompt_version` is **one** column, and this version versions **two** texts.
+
+Both `ai_agent_default_instructions` and `ai_agent_role_instructions` carry their own `saved_at`,
+and each writes to a sink of its own — confirmed in the built schema: two live tables, two `*Bk`
+tables, one `prompt_version` column. **One `STRING(32)` cannot address a row in two sinks.**
+
+Q33 settled that `prompt_version` is "the `saved_at` of the instruction in force". That reading
+assumed one instruction. There are two, and the role instruction is the provider's system prompt —
+the text that most changes what a model answers.
+
+The implementer took the **default instruction's** `saved_at`, on the reading that
+`ai_agent_default_instructions` is "the agent's own instruction" and `prompt_version` names the
+prompt. The consequence, which nobody had written down:
+
+> **Reword only the role, and `prompt_version` does not change.** A months-old result reproduced
+> from it comes back with the wrong system prompt.
+
+That is exactly the failure §17's third use case — "ORT reproduces a result from months ago,
+because the prompt version each call used is recorded against it" — exists to prevent. The
+identifier would be recorded, resolvable, and pointing at the wrong pair.
+
+- [x] recorded, not fixed — and the implementation is the safest reading available
+      Two ways out, and neither is an implementer's to pick:
+
+      - **a second column** — the role's `saved_at` recorded beside the instruction's, so the pair
+        addresses both sinks. A migration against checkpoint 3's table, in this feature
+      - **one identifier covering both** — a value derived from the two `saved_at`s together, or a
+        generation marker the agent itself carries and both texts write to. A design decision and
+        a spec line
+
+      Until then the recorded version addresses the instruction and says nothing about the role,
+      and that limitation is now written down rather than latent.
+
+      **The same shape as [[Q43]] one unit over**: a value the long-lived trace is supposed to
+      answer with, which the schema cannot actually hold.
+
+## Q45 · undefined-detail · blocking: no
+
+**Raised at** checkpoint 5 of #provider-layer, 2026-09-24. **The third brief defect this feature.**
+<!-- spec: provider-layer -->
+
+The unit brief for the prompt composer stated that `ai_tools` and `ai_agent_available_ai_tools`
+"exist and are seeded". **They exist and nothing seeds them** — no row, in any tier. The master
+agent seeder writes the agent and its two instruction tables and stops there.
+
+The implementer checked rather than believed it, and the shortfall was real: the tool half of its
+work had nothing to test against, and an "it returned an empty array" test would have passed
+against a composer that hard-coded `[]`.
+
+- [x] resolved — a development-tier fixture suite, and a refusal to invent the real one
+      It added obviously-fake agents and tools under `sequelize/seeders/development/`, which is
+      what that tier exists for, and **declined to add master-tier tool rows**: what a step of the
+      asset-media-extraction run may return is that service's own schema, and inventing it here
+      would install a baseline nobody designed and leak into `#asset-media-extraction`.
+
+      **Still owed by whichever feature owns the real tool schema: a master-tier `ai_tools` row and
+      its binding.** Without one, a default installation has an agent permitted to use no tools at
+      all — which passes every test written here and fails the first real run.
+
+      Three brief defects in one feature ([[Q36]], [[Q39]], and this) — each asserting a fact the
+      brief had not checked, each caught by the unit that checked. The pattern is stable enough to
+      act on: **a brief should state what it verified and what it is assuming**, so a unit knows
+      which half to test before leaning on it.
+
+## Q46 · eslint-exception · blocking: no — **fail-loud**
+
+**Raised at** checkpoint 5 of #provider-layer, 2026-09-24.
+<!-- spec: provider-layer -->
+
+`app/tools/BaseAiModelProcessor.js` carries **one inline disable, for one rule**:
+
+```js
+// eslint-disable-next-line no-restricted-syntax -- Template-Pattern base class; see the comment above.
+```
+
+**It is a genuine contradiction between two of this project's own rules.**
+
+| | |
+|---|---|
+| `hoc-classes-prohibits` permits it | *"A design such as an abstract base class that holds no state itself while its derived classes hold the properties (state) is not considered a class without state (treated the same as the Template Pattern)."* |
+| the ESLint selector forbids it | `ClassDeclaration[superClass=null]:not(:has(MethodDefinition[kind=constructor]))` — it fires on **any** root class with no constructor assigning to `this`, which is exactly the shape of a Template-Pattern base at the root of a hierarchy |
+
+**There is no state to add.** `.create()` must take no argument, because the processor loader calls
+it bare while scanning the directory — and that is the property making a keyless driver an
+**ordinary subclass** rather than a special case, which §17's first criterion rests on. Adding a
+property to satisfy the linter would be inventing state to defeat a rule that is trying to prevent
+invented state.
+
+`eslint.config.js` gained the file in its existing per-file exception block, so the disable comment
+itself is accepted; the block carries the reasoning.
+
+- [x] recorded — one rule, one line, one file
+      **Removal condition:** the selector gaining a way to admit a root class whose subclasses hold
+      the state — or this base acquiring real state, which would mean the abstraction changed.
+
+## Q47 · undefined-detail · blocking: no
+
+**Raised at** checkpoint 5 of #provider-layer, 2026-09-24.
+<!-- spec: provider-layer -->
+
+The always-on testing rules name `expect.each(actual).toBe(expected)` and
+`expect.deepContaining(expected)` as ORT Jest extensions available in this repository. **They are
+not.**
+
+`tests/setup-after-env.js` registers `globalThis.jest`, `globalThis.constructorSpy` and
+`globalThis.sequelizeActivator`, and calls `expect.extend` **never**. The packages that provide
+them — `@openreachtech/jest-expect-each`, `@openreachtech/jest-deep-containing` — are in neither
+`package.json` nor `node_modules`. `expect.each(received)` would be a `TypeError` at run time.
+
+- [x] resolved — found by a unit checking before using it, on my instruction to use it
+      I told an implementer to assert a universal property with `expect.each`, citing the rule. It
+      checked the setup file first, found the extension absent, and picked another legal shape that
+      keeps the same statement rather than weakening the assertion to "at least one entry matches".
+
+      **The rules describe a family of ORT repositories, and this one is younger than the rest.**
+      Two of the three extensions they promise are not wired here. Worth knowing before any future
+      test leans on one — and worth adding the two packages if the extensions are wanted, since the
+      convention plainly expects them.
+
