@@ -66,7 +66,46 @@ Constraint: a model call is never retried automatically (#scope, permanently out
       Q56 (a pre-existing `hasOne` setter NOT NULL failure). Q51 records that this feature had
       been minting row ids inside #run-contract's block, and why the brief caused it.
       -->
-- [ ] 9. Verify the use cases again, against the built API
+- [x] 9. Verify the use cases again, against the built API  <!-- skills: none matched — this checkpoint's delegates cover a frontend surface this feature has none of; the walk was run against the module surface instead, this feature declaring no API operation (see checkpoints 4 and 6); digests: none -->  <!-- agents: 1; wall-time: ~915s -->
+      <!--
+      All five use cases walk end to end. Executed, not read:
+
+      UC1 -> on a MASTER-SEEDERS-ONLY database, i.e. a literal default install, with
+             `process.env` replaced by a recording Proxy and `net.Socket#connect`, `http`,
+             `https`, `tls`, `dns.lookup` and `fetch` wrapped BEFORE any import: 0 env reads
+             attributable to this feature, 0 outbound connections, during boot and after.
+             Corroborated: no HTTP client and no vendor SDK is in package.json at all.
+      UC2 -> instruction, role and tool payload rewritten through `save()` while every file
+             under app/, server/, sequelize/ and constants/ was SHA-256 fingerprinted before
+             and after. Source tree unchanged; Vietnamese round-trips with diacritics and the
+             documented escaping intact.
+      UC3 -> all five seeded generations address exactly one sink row each, and the right one.
+             A version naming no generation resolves to zero rows — never to the wrong text.
+             The instruction sink is not content, so the 30-day purge does not reach it.
+      UC4 -> a model row alone resolves to null; one driver file dropped in makes it resolve,
+             with no service file touched. Unknown name -> null, no fallback; 'constructor' ->
+             null, no prototype leak; two drivers claiming one name -> throws, naming it.
+      UC5 -> two calls recorded, 446 billable tokens, surviving both a simulated content purge
+             and a move of the run to `canceled` — the latter because `ai_model_calls` carries
+             no DB-level FK and no cascade. The contract's `usage` block was computed from the
+             real rows: no drift.
+
+      Of the eight acceptance criteria, six are demonstrably satisfied. Criterion 3's first
+      half ('one deliberate setting') has no reader yet and is #run-execution's; criterion 7's
+      'outcome' is satisfiable only under the reading that outcome belongs to the run's step
+      rather than the call — recorded as Q57, because under any other reading it contradicts
+      §17's own data model.
+
+      Findings recorded, none blocking: Q57 (a failed call has no row shape, and no key joins
+      a call to its step), Q58 (two candidate 'one settings', and `ai_agent_default_models`
+      holds zero rows anywhere), Q59 (the spec overstates that adding a model is only a row),
+      Q60 (a default install binds no tools; no fixture for recorded calls), Q61 (no charset
+      declared, repo-wide, and this is where the Vietnamese wording now lives), Q62 (no
+      `AiRun.hasMany(AiModelCall)`, so `include` throws where `where` works).
+
+      The verifier wrote nothing into the repository and destroyed its probe rows; it used
+      this feature's own `101` prefix for them.
+      -->
 
 ## Frontend gate
 - [x] 10. Open the frontend  <!-- n/a: target names no frontend row -->

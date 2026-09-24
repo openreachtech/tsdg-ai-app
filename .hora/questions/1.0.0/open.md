@@ -1607,7 +1607,9 @@ different loader, inside the package, and this feature does not own it.
       `url.pathToFileURL`, then calling `SequelizeActivator.generateClient({ nodeEnv, configPath })`
       and `SequelizeActivator.activateModels({ sequelizeClient, models })`, boots the full real
       registry — hooks, mixins and associations — under plain `node`. Every live probe in both
-      checkpoint 8 audits ran that way.
+      checkpoint 8 audits ran that way. **`generateClient` is `async` and must be awaited** — the
+      brief that carried this route to checkpoint 9 omitted the `await` and had to be corrected
+      there.
 
 ## Q56 · undefined-detail · blocking: no
 
@@ -1637,3 +1639,147 @@ diff rather than by checking out an earlier commit.
       would let an orphaned instruction row exist, which the `allowNull: false` was chosen against.
       Declaring the association so the old row is destroyed rather than detached changes what a
       reassignment means. Whoever owns the agent data model decides.
+
+## Q57 · undefined-detail · blocking: no
+
+**Raised at** checkpoint 9 of #provider-layer, 2026-09-24. **A failed model call has no row shape,
+and widening it later costs a migration.**
+<!-- spec: provider-layer -->
+
+**`ai_model_calls` can only record a call that answered.** `latency_milliseconds`,
+`input_token_count` and `output_token_count` are all `NOT NULL`, and `saveAiModelCall` requires
+`respondedAt` besides — so a call that errored is not recorded at all, rather than recorded as
+failed.
+
+A run billed by counting the calls recorded against it therefore counts only the calls that
+answered. Verified by execution at checkpoint 9: two recorded calls, 446 billable tokens, both
+surviving a simulated content purge and a move of the run to `canceled`.
+
+**§17's own data model gives `ai_model_calls` no outcome column**, so the code matches the spec. What
+does not match is acceptance criterion 7, which says each call is recorded "with its model, its input
+and output token counts, and **its outcome**". The two can only be reconciled by reading "outcome" as
+the run's, not the call's — `ai_run_steps.outcome_code` (#run-record) plus the contract's
+`PROVIDER_CALL_FAILED`, with the existence of a call row meaning the call answered.
+
+- [ ] open — **the reading above is an assumption, and it is the spec author's to confirm**
+      Under any other reading the criterion contradicts the data model in its own section.
+
+      **Why it is worth settling now rather than at #run-execution.** 1.0.0 is unreleased, so the
+      migration can still be edited in place; once a long-lived database has run it, adding the
+      column is a second migration on live data. Whether a failed provider call must be billed is a
+      policy question, but the row shape that would let anyone answer it is this feature's.
+
+      **A structural gap the same reading leaves open, whichever way it is settled:** `ai_model_calls`
+      carries `AiRunId`, `action_name` and `reading_index`; `ai_run_steps` carries `AiRunId`,
+      `step_index` and `step_name`. **No key joins a call to the step that made it.** Anyone building
+      "which call had which outcome" in #run-record or #run-delivery has to match `action_name`
+      against `step_name` by convention, and nothing records that convention.
+
+## Q58 · undefined-detail · blocking: no
+
+**Raised at** checkpoint 9 of #provider-layer, 2026-09-24. **Two candidate settings decide which
+model answers, and nothing says which one wins.**
+<!-- spec: provider-layer -->
+
+Acceptance criterion 3 says turning a real provider on is "a deliberate change of **one** setting".
+There are two, and §17 does not rank them:
+
+- `ai_models.is_default` / `is_active` — global
+- `ai_agent_default_models.AiModelId` — per agent
+
+**Neither has a reader.** Checkpoint 9 executed `grep` over `app/` and `server/`: nothing reads
+`is_default`, `is_active` or `ai_agent_default_models`. The mechanism is #run-execution's to honor,
+so this is a question handed forward rather than a defect here.
+
+**`ai_agent_default_models` is dead surface this version.** Migration, model, `.d.ts` and association
+all exist, and the table holds **zero rows** in `master`, `dev-master` and `development` alike
+(executed count). §17 lists it as "which model an agent uses, as data" — and on every installation
+that question currently has no answer in data.
+
+- [ ] open
+      **The risk if it stays undecided:** #run-execution reads one while an operator flips the other,
+      and a run answers on a model nobody selected. That failure is silent — the run succeeds.
+
+      Either seed `ai_agent_default_models` beside the agent and make it authoritative, or state that
+      `ai_models.is_default` is the authority and let the per-agent table stay unused until a version
+      needs it.
+
+## Q59 · undefined-detail · blocking: no
+
+**Raised at** checkpoint 9 of #provider-layer, 2026-09-24. **The spec overstates what adding a model
+costs.**
+<!-- spec: provider-layer -->
+
+§17's data model says "Adding a model is a **row**", and acceptance criterion 4 says models "are read
+from the database, and changing one needs no deployment".
+
+**Executed at checkpoint 9:** inserting `ai_providers` + `ai_models` + `ai_model_capabilities` rows
+and nothing else resolves to `null`. The model becomes usable only once a driver file is dropped into
+a pool directory. That is the right design — a vendor needs code — but the sentence reads as though a
+row alone were enough.
+
+The use case itself ("ORT adds a model without touching the **services** that use one") is met in
+full: nothing outside the driver names a vendor, and the app-facing `name` is the only key a caller
+holds.
+
+- [ ] open — a wording fix, and `specs/` is not this session's to edit unasked
+      Proposed: "Adding a model is a row plus one driver class; nothing that *uses* a model changes."
+      The criterion would read "models are read from the database; adding a vendor still ships a
+      driver."
+
+## Q60 · undefined-detail · blocking: no
+
+**Raised at** checkpoint 9 of #provider-layer, 2026-09-24. **A default installation binds no tools,
+and no fixture exists for recorded calls.**
+<!-- spec: provider-layer -->
+
+Two seeding gaps, both found by executing against a rebuilt database:
+
+1. **`master` seeds no `ai_tools` and no `ai_agent_available_ai_tools`.** `composePrompt` for
+   `asset-media-extraction-agent` therefore returns `toolSchemas: []`, and the stub answers with zero
+   function calls — a run that, by the stub's own documentation, "settles nothing". Acceptance
+   criterion 1's "answers every service on the stub" is true today only in the weak sense: the path
+   completes, but it decides nothing. The tool set belongs to #asset-media-extraction (§20), so this
+   is a handover rather than a hole.
+2. **No development seeder for `ai_model_calls`.** After a clean reseed the table holds zero rows. A
+   later feature reading recorded calls — #run-delivery's `usage` block, #run-list — has no fixture.
+
+- [ ] open
+      Both are cheap now and awkward later: a test written against an empty table tends to grow its
+      own fixture, which is the thing the seeder convention exists to prevent.
+
+## Q61 · undefined-detail · blocking: no
+
+**Raised at** checkpoint 9 of #provider-layer, 2026-09-24. **Repo-wide and pre-existing, but this is
+the feature that made it matter.**
+<!-- spec: none -->
+
+**No charset or collation is declared anywhere** — not in `sequelize/config.cjs`, not in any
+migration, not in `BaseAppRenchanModel.createOptions`.
+
+Under the development SQLite dialect Vietnamese round-trips perfectly; checkpoint 9 executed exactly
+that, storing and recomposing `Hãy mô tả chiếc xe tải trong ảnh, nêu rõ màu sơn & tình trạng
+<thân vỏ>.` with diacritics and escaping intact. On MariaDB the wording tables inherit the server
+default, and a `latin1` server would mangle the very text use case 2 is about.
+
+- [ ] open
+      Not introduced by this feature, but this feature is where the Vietnamese wording now lives —
+      `ai_agent_default_instructions`, `ai_agent_role_instructions` and their sinks. The failure
+      would appear only on a live MariaDB, i.e. past every gate this project runs.
+
+## Q62 · undefined-detail · blocking: no
+
+**Raised at** checkpoint 9 of #provider-layer, 2026-09-24.
+<!-- spec: provider-layer -->
+
+**`AiRun` declares no `hasMany(AiModelCall)`.** Its associations are `ApiClient`, `AiRunCategory` and
+`AiRunStatus`.
+
+The billing read works — checkpoint 9 executed `AiModelCall.findAll({ where: { AiRunId } })` on the
+indexed column and computed the contract's `usage` block from real rows — but
+`AiRun.findOne({ include: [AiModelCall] })` throws.
+
+- [ ] open
+      Worth telling #run-delivery and #run-list before they write that block, since `include` is the
+      obvious shape to reach for and the eager-load convention in `performance.md` points straight at
+      it.
