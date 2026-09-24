@@ -118,4 +118,17 @@ Constraint: a model call is never retried automatically (#scope, permanently out
 - [x] 17. Local test environment  <!-- n/a: target names no frontend row -->
 
 ## Acceptance gate
-- [ ] 18. Acceptance (E2E and unit both)
+- [x] 18. Acceptance (E2E and unit both)  <!-- skills: hor-backend-testing, hoc-jest, hoc-test-execution; none equipped covers the scenario list or the acceptance review on a product with no API operation and no frontend row; digests: hora-skills-ort-renchan 0.2.1, hora-skills-ort-core 0.4.0 -->  <!-- agents: 0; wall-time: ~600s -->
+      <!--
+      Record: .hora/acceptance/1.0.0/provider-layer.md, run 1 — passed, scoped, live skipped.
+      1225 tests over four groups, 0 failed, lint clean, executed rather than reused (no
+      .hora-cache.json exists).
+
+      A PARTIAL run, and the record says so: the scenario list and the acceptance review had
+      no equipped delegate. Both read an API surface or a UI, and this feature declares
+      neither — which is the same reason checkpoints 4 and 6 are n/a.
+
+      What actually judged the behavior was checkpoint 9, and the record names it rather than
+      letting the verdict rest on green suites: it ran at 4c9c0fe, which is the backend HEAD
+      this gate judged, so nothing was rebuilt between the two.
+      -->
