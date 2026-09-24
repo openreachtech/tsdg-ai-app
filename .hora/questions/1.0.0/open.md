@@ -886,3 +886,197 @@ identifier**, so a call recording `prompt_version = X` has nothing to join X to.
       unachievable — which nothing would discover until somebody actually tried to reproduce a
       months-old result.
 
+      **Settled at checkpoint 3, by reading the code rather than the conventions.** Two equipped
+      skills disagreed on what the backup mixin writes: `hor-ai-prompt-document-store` says
+      `.save()` copies the **pre-change** row into the sink, `hor-sequelize-model` says it is an
+      `afterSave` clone of the **new** values. The two imply different `savedAt` values in the
+      sink, and therefore different answers to whether a version can be addressed at all.
+
+      `BackupMixinModel.setupHooks()` settles it: an `afterSave` hook building the sink row from
+      `entity.get(key)`. **The newly saved values.** So the sink holds every version an
+      instruction has ever had, each with its own `savedAt`.
+
+      **`prompt_version` is therefore the `savedAt` of the instruction in force**, which
+      addresses exactly one sink row and resolves a months-old call back to the text that was
+      sent. Checkpoint 3 builds it that way.
+
+## Q34 · upstream-defect · blocking: no
+
+**Raised at** checkpoint 3 of #provider-layer, 2026-09-24.
+<!-- spec: provider-layer -->
+
+In `hora-skills-ort-renchan 0.2.1`, `hor-ai-prompt-document-store` states that the backup mixin
+**"copies the pre-change row"** into the `*Bk` sink on `.save()`. The sibling
+`hor-sequelize-model` in the same package describes the opposite: an `afterSave` clone of the
+newly saved attributes.
+
+The installed code settles it —
+`node_modules/@openreachtech/renchan-sequelize/lib/models/mixins/BackupMixinModel.js`:
+
+```js
+this.afterSave(async (entity, options) => {
+  const values = Object.fromEntries(
+    Object.keys(this.getAttributes())
+      .filter(key => !accessoryKeys.includes(key))
+      .map(key => [key, entity.get(key)])
+  )
+  await this.BackupModel.build(values).save({ transaction: options.transaction })
+})
+```
+
+`entity.get(key)` after the save is the **new** value. `hor-sequelize-model` is right;
+`hor-ai-prompt-document-store` is wrong, and the two skills ship in one package.
+
+- [x] worked around — the digest is corrected, the skill is not
+      `.hora/digests/hor-ai-prompt-document-store.md` now states the verified behaviour and marks
+      the skill's sentence as wrong, so no implementer reads the false version. The skill itself
+      is the package's to fix.
+
+      **It is not a wording slip.** Which row lands in the sink decides whether a stored version
+      identifier can address one — [[Q33]] turned on exactly this, and the wrong reading would
+      have made a recorded `prompt_version` point at the version *before* the one that was used.
+
+## Q35 · undefined-detail · blocking: no
+
+**Raised at** checkpoint 3 of #provider-layer, 2026-09-24.
+<!-- spec: provider-layer -->
+
+§17 opens with a provenance claim that is **wrong for three of its eleven tables**:
+
+> Ported as a set from `annex/reference/leepai/`. The tables below are that store; their column
+> detail is in the extract, and the port is expected to match it rather than restate it.
+
+`specs/1.0.0/annex/reference/leepai/sequelize/models/` holds exactly 20 files, every one of them
+`AiAgent*` or `AiTool`. **There is no `AiProvider.js`, no `AiModel.js` and no capability model**
+— and none in `rgp-yazaki/` or `linoa/` either. Two units found the absence independently, from
+opposite ends, before it was checked centrally.
+
+So the catalog the whole feature pivots on — the provider, the model, and the model's limits —
+has no extract to be matched against, while the sentence says it does.
+
+- [x] resolved — nothing was blocked, because the spec states those columns itself
+      §17's own row names them: `ai_providers` (`name`), `ai_models` (`AiProviderId`, `name`,
+      `target_model_name`, `is_default`, `is_active`, `display_order`), `ai_model_capabilities`
+      (`AiModelId`, `context_window_token`, `max_output_token`). That list is the authority for
+      these three, and the units were told so.
+
+      **What is wrong is the claim, not the content.** "Match the extract rather than restate it"
+      reads as an instruction to go and find something, and an implementer who takes it at its
+      word either stalls or — worse — fills the gap from the nearest thing that looks similar.
+      The sentence holds for the agent and tool tables; it should say so rather than covering the
+      whole set.
+
+## Q36 · undefined-detail · blocking: no
+
+**Raised at** checkpoint 3 of #provider-layer, 2026-09-24. **A defect in a brief, not in the product.**
+<!-- spec: provider-layer -->
+
+Two instructions in this checkpoint's unit briefs were wrong, and both were caught by an
+implementer checking the repository instead of trusting what it was handed.
+
+| What the brief said | What the tree says |
+|---|---|
+| "index names come from a `SHORT_COLUMN_NAME` map" | **no migration in this repository defines one.** `.hora/digests/hor-sequelize-migration.md` says to shorten only when a name runs long, and not to shorten when it fits |
+| — | `ai_models` must be `BIGINT`, because `ai_model_calls.AiModelId` is. Had one unit typed the catalog `ID_INTEGER` to match the sibling masters, **SQLite would have accepted the mismatch silently** and it would have surfaced on MariaDB |
+
+- [x] resolved — the briefs were corrected mid-run and the second risk was closed before it landed
+      The `SHORT_COLUMN_NAME` instruction came from the always-on ORT rules, which describe a
+      different repository's migrations. It was carried into the brief as though it were this
+      repository's convention.
+
+      **Worth keeping because of how it was caught.** Nothing in the process would have flagged
+      either one: a wrong index-naming instruction produces working code, and the integer/bigint
+      mismatch produces a green suite on the test engine and a failure on the one that runs live
+      — which the non-functional requirements already name as this project's known engine gap.
+      Both were found because an implementer treated its brief as a claim to check rather than an
+      order to follow.
+
+## Q37 · undefined-detail · blocking: no
+
+**Raised at** checkpoint 3 of #provider-layer, 2026-09-24.
+<!-- spec: provider-layer -->
+
+§17's table list carries `ai_agent_available_ai_tools` — which agent may use which tool — and
+**no `ai_model_tool_assignments`**, which is the other half of the same subject: which tool a
+given vendor's model can actually serve.
+
+The two are genuinely different relations and the unit that built the first one settled that
+rather than merging them:
+
+| | Binds | Says |
+|---|---|---|
+| `ai_agent_available_ai_tools` | tool ↔ **agent** | this service is permitted to use this tool, whether it is on, whether it is offered unasked. A product decision |
+| `ai_model_tool_assignments` | tool ↔ **model** | this vendor's model supports this tool. A capability fact |
+
+**They are allowed to disagree** — a model may support web search while a given agent is not
+permitted to use it — which is exactly why one cannot stand in for the other.
+
+The extract carries both as separate models, and its agent-update path uses the second to
+**refuse a tool the model cannot serve**. This version has no such table, so that check cannot
+be written here.
+
+- [x] resolved — read as deliberate, and consistent with the rest of §17
+      §17 states plainly that there is **no operation for editing a prompt this version**: a
+      change is a direct database write by an operator on the machine. The refusal the extract
+      performs happens at exactly that write, in a mutation this version does not build — so the
+      table whose only stated use is backing that refusal has nothing to back.
+
+      **Recorded rather than passed over, because the absence is load-bearing the moment an admin
+      console arrives.** §4 already defers that console; when it lands, the tool-choice it offers
+      an operator has no capability table to validate against, and the missing check is a data
+      integrity hole rather than a missing convenience. The feature that builds the console owes
+      this table, or owes a stated reason not to.
+
+## Q38 · undefined-detail · blocking: no
+
+**Raised at** checkpoint 3 of #provider-layer, 2026-09-24.
+<!-- spec: provider-layer -->
+
+Three gaps in §17's catalog, found while building it. None blocked the work; each was decided
+and the decision is recorded here rather than left in a migration comment.
+
+**1. `ai_providers` is given one column, and one column is not a reference master.** §17 names
+`name` alone. Every reference master in this repository and in `hor-database-design`'s own
+standard set carries `name` / `display_name` / `display_order` / `is_active`, and the two this
+project already built (`ai_run_categories`, `ai_run_statuses`) carry exactly those. The table was
+built with all four. **`is_active` in particular is the only honest way to retire a vendor**
+without deleting a row that recorded history points at.
+
+**2. `is_default` has no stated scope.** The criterion "turning a real provider on is a
+deliberate change of one setting" implies exactly one default — but the spec never says whether
+that is one default model per installation or one per provider, and the two need different
+constraints. **No constraint was built**, deliberately: a UNIQUE index on a boolean would forbid
+a second *non*-default row, so there is no correct column-level expression of either reading. It
+is a rule the selection code enforces, and it needs a spec line before that code is written.
+
+**3. The stub's own capability figures are unstated.** The spec requires the stub path to be the
+real path, so it needs a capability row — but nothing says what a stub's context window and
+output ceiling are. Seeded as `200000` / `8192`, chosen so the payload gets **built against
+real-sized numbers** rather than skipped; a default installation has to exercise that building.
+A spec line would be better than an implementer's judgment.
+
+- [x] recorded — the work proceeded on the readings above, all three stated
+      Each is a decision somebody can overturn cheaply now and expensively later. The first two
+      are schema; the third is a seeded figure.
+
+## Q39 · undefined-detail · blocking: no
+
+**Raised at** checkpoint 3 of #provider-layer, 2026-09-24. **A defect in the briefs, again mine.**
+<!-- spec: provider-layer -->
+
+`.hora/digests/hor-sequelize-migration.md` states the filename rule plainly: `{seq}` is a
+**"6-digit zero-padded running number"**. The unit briefs did not say so, and four of the five
+units derived the number from their assigned timestamp slot instead — producing two `000004`
+files, two `000005` files and so on across different timestamps.
+
+**Nothing breaks**: sequelize-cli orders on the timestamp, which is unique per file. What breaks
+is the number's meaning — a running number that does not run tells a later reader nothing.
+
+- [x] resolved — renumbered at the gather to one running sequence
+      One unit followed the rule from the digest without being told, and its numbering is the one
+      the others were brought into line with.
+
+      **The pattern is the same as [[Q36]]**: the brief asserted a convention it had not checked,
+      and the unit that checked was right. Two for two in one checkpoint is worth noticing — a
+      brief is a claim, and a unit that treats it as an order inherits its author's mistakes.
+
