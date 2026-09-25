@@ -1882,3 +1882,644 @@ invisible in a diff viewer and would have sat in the history.
       `.hora/spec/1.0.0/_assets.md`. All predate this session. Normalizing them would widen a
       line-ending repair into files this work never touched; they are named here so the next person
       to add a `.gitattributes` knows what is already there.
+
+## Q65 · undefined-detail · blocking: no
+
+**Raised at** checkpoint 3 of #run-record, 2026-09-25.
+<!-- spec: run-record -->
+
+**The three new constant hashes have no ESM bridge, and the repository is already inconsistent about
+whether they need one.** `hor-constant-definition` states that every constant is two files — the
+`constants/<name>.cjs` master and an `app/constants/<name>.js` bridge that re-exports it through the
+custom `require`.
+
+`AI_RUN_STEP_CATEGORY`, `AI_RUN_FIELD_STATUS` and `AI_RUN_EVIDENCE_CATEGORY` were written as `.cjs`
+only, because the unit's file list named only those. The repository does not settle the question
+either way: `aiRunStatusConstants` and `aiRunCategoryConstants` have bridges, `aiProviderConstants`,
+`aiModelConstants` and `aiAgentConstants` do not.
+
+- [ ] open, and deliberately deferred to checkpoint 5
+      **Nothing needs a bridge yet** — no application code binds to these ids at checkpoint 3, and the
+      seeders `require` the `.cjs` directly. The first consumer is the step writer and the outcome
+      writer, both of which arrive at checkpoint 5, and that is the run that will know which of the
+      three it actually imports.
+
+      Writing three bridges nothing imports would be three files to keep in step for no reader. The
+      risk of waiting is the opposite one: a checkpoint-5 unit reaches for
+      `AI_RUN_STEP_CATEGORY.CODE.ID` from ESM, finds no bridge, and writes a fourth pattern rather
+      than the convention. Named here so that does not happen quietly.
+
+## Q66 · undefined-detail · blocking: no
+
+**Raised at** checkpoint 3 of #run-record, 2026-09-25. **Settled, and recorded because the rows are
+now seeded and the cost of reversing rises from here.**
+<!-- spec: run-record -->
+
+**§6 and §10 describe the first evidence kind differently, and the seeded key follows §6.**
+
+| | |
+|---|---|
+| §6, the terminology table | "what a reading was based on — **visible text**, a visual estimate, or a category prior" |
+| §10, the master's one-line description | "**something visible in the medium**, an estimate made from it, and a prior drawn from the category the subject belongs to" |
+
+The first is narrow — text that can be read. The second is broad — anything visible at all, a paint
+color or a dent included. The seeded names are `visible-text`, `visual-estimate`, `category-prior`.
+
+- [x] settled — the narrow reading, on §6's authority
+      **§6 is where the spec defines its terms**, so it outranks a one-line table description
+      elsewhere; and the annex's own confidence table uses `visible_text` and scores it at 1.00, so
+      two of the three sources agree. The spelling is kebab-case rather than the annex's snake_case
+      because this repository's existing multi-word master key is kebab (`asset-media-extraction`),
+      and the annex is interpretation material rather than a declared Source.
+
+      **What this forecloses, stated plainly.** If the intent was the broad reading — a model
+      allowed to rest a reading on a dent or a paint color rather than on text — then `visible-text`
+      is the wrong name and will be wrong permanently, because it becomes the value every
+      `ai_run_field_outcomes` row carries and every confidence weight keys on. Reversing it today is
+      a constant and a seeder; reversing it after #asset-media-extraction runs is a migration over
+      live rows.
+
+      §10's looser sentence was **not** edited to match, because its exact replacement wording was
+      never put up for approval and nothing may enter `specs/` unread. The disagreement is recorded
+      here instead, so whoever next edits §10 knows which of the two the code followed.
+
+## Q67 · undefined-detail · blocking: no
+
+**Raised at** checkpoint 3 of #run-record, 2026-09-25. **The checkpoint's verifier failed the gate on
+this and it was fixed; what stays open is the precedent it sets.**
+<!-- spec: run-record -->
+
+**`suggestion_confidence` is the repository's first and only DECIMAL column**, and Sequelize returns a
+DECIMAL differently per dialect: a **string** on MySQL and MariaDB — `staging` and `live` — and a
+**number** on SQLite, which is what `development` runs and therefore what every Jest run sees.
+
+The declaration first read `suggestionConfidence: string | null`. Verified by execution against the
+real models: writing `0.8125` and reading it back under `development` yields `typeof number`. So the
+declaration was true of production only, and a test written from it — `expect(…).toBe('0.8125')` —
+would fail locally while looking correct.
+
+- [x] fixed as the union, with the reasoning carried in the file
+      `string | number | null` is provably true in every dialect this project configures, needs no
+      behavior change and cannot introduce a defect. The `.d.ts` carries a comment saying why, and
+      saying not to narrow it — because the half that is wrong would be wrong only in the environment
+      nobody tests in.
+
+- [ ] open — **whether to normalize instead, when a consumer exists**
+      The alternative is a reading normalizer on the model so every consumer sees `number`, and the
+      declaration states that. It is the better shape for readers, and it is the one this repository
+      will want if more decimal columns arrive.
+
+      **Not done now, deliberately.** It changes read behavior, and nothing consumes the column yet —
+      `AssetFieldConfidenceScorer` is #asset-media-extraction's, seventh in the order. A normalizer
+      written before its first reader is a behavior change verified by nothing. Decide it when that
+      scorer lands; whatever is chosen becomes the pattern for every later decimal.
+
+## Q68 · undefined-detail · blocking: no
+
+**Raised at** checkpoint 3 of #run-record, 2026-09-25. **Two things this checkpoint correctly did not
+owe, recorded so the checkpoint that does owe them is not surprised.**
+<!-- spec: run-record -->
+
+**1. No development seeder for `ai_run_steps` or `ai_run_field_outcomes`.** `development/` holds
+fixtures for `api_clients`, `ai_runs` and the agent prompt suite, and nothing for the two new
+transactional tables. Checkpoint 3's exit condition names no development seeder and no test exists
+yet, so this is not a shortfall here.
+
+But the testing rule forbids mocking DB rows — *"if data is missing, add a seeder"* — so checkpoints
+6, 9 and 18 all need them. `.hora/id-bank.json` already reserves prefix `102` for this feature, and
+the masters are exempt from it, so the fixture ids are `102`-prefixed and free.
+
+**2. The purge job will filter these two tables with no index to do it on.** §19's "purge expired run
+traces" runs on the long clock and selects by date, and neither table has an index on `settled_at`,
+`started_at` or `created_at`.
+
+- [ ] open, both belonging to a later feature
+      The seeders belong to whichever checkpoint first needs a row it cannot create itself — most
+      likely 5 or 6 of this feature. The index belongs to #retention, eleventh, which can add it in a
+      migration of its own; noted so it is designed rather than rediscovered when a purge over two
+      years of trace rows turns out to be a table scan.
+
+## Q69 · convention-violation · blocking: no
+
+**Raised at** checkpoint 5 of #run-record, 2026-09-25. **Caused by the orchestrator's own briefs, found
+by running the suite together rather than by review.**
+<!-- spec: run-record -->
+
+**Three of the checkpoint's four units were told different things about the same table.** `ai_run_steps`
+carries a UNIQUE index on `(AiRunId, step_index)`, and the briefs said: one unit should reference the
+runs `#run-contract` seeded, one should create its own, and the seeder unit should seed steps onto the
+seeded runs. The result:
+
+| writer | runs it used |
+|---|---|
+| the step seeder | `10010001`, `10010003`, `10010004`, `10010005`, `10010006` |
+| `AiRunStepRecorder`'s order test | `10010007`–`10010010` |
+| `AiRunFieldOutcomeRecorder`'s order test | `10010001`, `10010002`, `10010008`–`10010010` |
+| `AiRunStatusRecorder`'s order test | **created its own, `10230001`+** |
+
+Two overlaps, both real: the first two tests share runs `10010008`–`10010010`, and the outcome test
+shares run `10010001` with the seeder.
+
+**Every unit reported its own allocation as disjoint, and every one of them was right about its own
+file** — each had only ever run its own test. The first run of the folder together was the gather step,
+and it failed immediately: `4 failed, 90 passed`, all four on `step_index must be unique`.
+
+- [x] fixed — each order test now creates the runs it needs, in its own id block
+      `AiRunStatusRecorder`'s unit reached that shape on its own, unprompted, and said why: moving a
+      seeded run "would surface as their failure". That is the pattern the other two were moved onto.
+
+      **The rule this restores, worth stating once:** a test in `_orders` must not depend on rows another
+      test or a seeder writes. Order in the barrel is for stating a real dependency between tests, not
+      for keeping two independent files out of each other's way. Two of these passed only because the
+      barrel happened to run them in the order that let the first claim its runs.
+
+      **The alternative was rejected deliberately.** Partitioning the ten seeded runs between writers
+      would need an allocation table nobody writes down — which is exactly what failed here — and the
+      pool is finite while #run-execution, #run-delivery, #run-list and #run-cancel all still want runs.
+
+## Q70 · undefined-detail · blocking: no
+
+**Raised at** checkpoint 5 of #run-record, 2026-09-25.
+<!-- spec: run-record -->
+
+**§10 gives `ai_run_steps` two columns that describe incompatible lifecycles.** `outcome_code` is
+`NOT NULL`; `finished_at` is documented as "NULL while it is running". The second anticipates a row
+that exists *while* a step is in flight; the first makes such a row impossible to insert honestly,
+because no outcome has been derived yet.
+
+It was resolved in favor of the `NOT NULL`: the recorder writes one row when the step closes, and
+`finished_at` null means a step that was **cut short** rather than one in flight.
+
+- [ ] open — **the cost is stated, and it is a real one**
+      **A step lost to a process crash leaves no row at all**, so the decision trace of a hard-killed
+      worker stops at the last step that closed. For a table whose whole purpose is answering "what did
+      this run actually do", that is the case where it answers least.
+
+      Two ways out, both `specs/` work: a `running` outcome code seeded into the master alongside the
+      others, or `outcome_code` made nullable. Neither is this feature's to choose alone — #run-execution
+      is what will crash, and it is not built.
+
+      The development seeder already carries an `in-progress` outcome code on one row, invented to seed
+      a running step. That value exists in data and in no specification.
+
+      **Update 2026-09-25 — one notch worse than written.** Checkpoint 9 found that the seeded running
+      step (`10240018`, run `10010001`, `finished_at` null, `outcome_code` `in-progress`) is **a row
+      shape `AiRunStepRecorder` cannot write at all**. The class writes once at close with a derived
+      outcome, and its own documentation says a null `finished_at` means *cut short*, not *in flight*.
+      So the fixture does not merely use an unspecified value — it depicts a lifecycle the application
+      does not implement. Since §10 says an operator reads these rows directly this version, anyone
+      reading the seeded record to learn what a running run looks like learns something untrue.
+
+## Q71 · undefined-detail · blocking: no
+
+**Raised at** checkpoint 5 of #run-record, 2026-09-25. **A vocabulary now exists in data and nowhere
+else.**
+<!-- spec: run-record -->
+
+**`step_name`, `outcome_code` and `reason_code` are free strings with no master table, no constants file
+and no list in §10.** The statuses, the step categories, the field states and the evidence kinds all have
+master tables; these three have nothing.
+
+The development seeder had to invent the first set to seed a plausible trace:
+
+- **`step_name`** — `filter-suggestible-fields`, `fetch-media`, `read-media`, `drop-disallowed-readings`,
+  `settle-by-majority`, `score-confidence`, `await-owner-decision` (one per §20 step, in order)
+- **`outcome_code`** — `fields-kept`, `media-fetched`, `readings-returned`, `readings-dropped`,
+  `fields-settled`, `confidence-scored`, `decision-recorded`, `media-fetch-failed`, `in-progress`,
+  `step-canceled`
+- **`reason_code`** — `schema-check-dropped-readings`, `majority-not-reached-for-some-fields`,
+  `media-unreadable`, `canceled-before-completion`
+
+The status recorder's tests independently invented `media_unreachable` and `run_time_limit_reached` —
+**in snake_case, where the seeder used kebab-case.** That divergence appeared inside one checkpoint,
+between two units of the same feature, which is the clearest possible evidence that nothing pins it.
+
+**Update 2026-09-25 — the list was too short, in two directions.**
+
+**Two more free-string columns belong here**, found by checkpoint 8's audit: `ai_run_field_outcomes.
+field_path` (STRING(191)) and `confidence_method_version` (STRING(32)). The difference matters. The
+three columns above risk a **vocabulary drift** — kebab against snake case. `field_path` risks
+**privacy**: the audit wrote raw medium text into it and the row stored it, and this feature's own
+seeder carries `reasonCode: 'field-path-outside-schema'`, which says a path can be produced by the
+model rather than bounded by a schema. It is the widest channel by which content reaches a 730-day
+table. That half is being closed as a security finding, not left to a vocabulary decision.
+
+**And one column that looked like it belonged here does not:** `ai_runs.failure_reason_code` has a
+vocabulary already, fixed in the contract. See Q77.
+
+- [ ] open
+      **Whoever builds #run-execution decides this**, and will either adopt what is seeded or contradict
+      it. If a reason code is ever read back, translated or filtered on, it needs a master table like
+      every other classification in this schema; if it is only ever a string in a log, it needs saying
+      once in §10 that it is.
+
+      Recorded now because the cost rises with every row written against an unpinned value.
+
+## Q72 · undefined-detail · blocking: no
+
+**Raised at** checkpoint 5 of #run-record, 2026-09-25. **Three things the status recorder had to decide
+that belong to #run-cancel.**
+<!-- spec: run-record -->
+
+**1. A cancellation arriving after the run has already settled.** §10 is silent. It is refused: the
+cancel-request write goes through the same terminal guard, so `cancel_requested_at` is never stamped onto
+a run that finished — an instant recorded there would read as a gap that was never waited out. Whether
+the API answers that with `409` or with the settled run as it stands is #run-cancel's.
+
+**2. Whether `finished_at` is written when a run is canceled, and whether it equals `canceled_at`.** §10
+names the two cancellation instants and says nothing about `finished_at`. Rather than deriving one from
+the other, the method takes **both** on the call, so whether they coincide is the caller's statement and
+not the class's assumption.
+
+**3. A read-then-write window.** The guarded writer reads the run and then writes it — two statements —
+so a cancellation taking effect at the same instant a worker records success could pass the guard on the
+status it had already read.
+
+- [ ] open, all three
+      **The third is the one that matters and it is deliberately left open.** Closing it means a
+      conditional write with the terminal statuses in the `WHERE` and an affected-row count to interpret.
+      **This feature has no second concurrent writer** — nothing dispatches a run and nothing cancels one
+      until #run-execution and #run-cancel exist. Whichever of those introduces the second writer is where
+      the window has to be closed, and the class's own JSDoc says so.
+
+      Writing the conditional now would be a concurrency guard verified by nothing, in a feature where the
+      race cannot occur.
+
+## Q73 · undefined-detail · blocking: no
+
+**Raised at** checkpoint 5 of #run-record, 2026-09-25.
+<!-- spec: run-record -->
+
+**§10 does not settle whether a field that *was* settled may carry a null `suggestion_confidence`.** The
+column is nullable and its stated meaning is "NULL when nothing was settled", so a settled field with a
+null score is a row the schema permits and the prose does not describe.
+
+The recorder does not refuse it. That is deliberate: the score is the scorer's to compute, and refusing it
+here would be this class deciding a policy §10 left open — the same reason nothing in the status recorder
+infers a failure from an empty result.
+
+- [ ] open
+      One sentence in §10 either way settles it. The question becomes live when
+      `AssetFieldConfidenceScorer` is built in #asset-media-extraction, which is the thing that would
+      produce — or refuse to produce — a settled field with no score.
+
+## Q74 · undefined-detail · blocking: no
+
+**Raised at** checkpoint 5 of #run-record, 2026-09-25. **Two properties of the `_orders` tree, measured
+rather than assumed.**
+<!-- spec: none -->
+
+**1. `tests/_orders/` is not idempotent, tree-wide.** Run it twice against the same database without
+re-seeding and it fails: `66 failed, 28 passed` across three of the four folders. Every failure is a
+re-insert of a row the first run wrote — 42 × `id must be unique`, 4 × `api_client_id must be unique`,
+4 × `request_key must be unique` in the `AiRun` folder alone, and `AiAgent` and `AiTool` fail the same
+way. Only `AiModelCall` survives a second run.
+
+This is **pre-existing and not caused by any work here** — the same holds for folders this feature never
+touched. It is recorded because every brief in this session has had to carry the words "re-seed before
+every `_orders` run", and a reader who does not know this will diagnose a dirty database as a defect.
+
+- [ ] open
+      Making the tree idempotent would mean teardown, or auto-increment ids, in every folder. That is a
+      decision about the whole test convention, not about any one feature, and it is worth making
+      deliberately rather than discovering again at the next gate.
+
+**2. One order test still borrows another feature's seeded rows, latently.**
+`tests/_orders/AiModelCall/AiModelCallRecorder.js` writes `ai_model_calls` rows hung off
+`#run-contract`'s seeded runs `10010001`, `10010002`, `10010004`, `10010005`.
+
+It is the same rule Q69 restored, and it **cannot bite today**: `ai_model_calls` carries no UNIQUE index
+beyond `id`, and no seeder writes that table, so there is nothing for a second writer to collide with.
+It is latent, not broken.
+
+- [ ] open
+      It becomes live the moment anything seeds `ai_model_calls` — which Q68 already says a later feature
+      will want — or the moment that table gains a composite unique. Cheap to move now, the same way the
+      two step-writing tests were just moved; left alone here because it belongs to #provider-layer's
+      change set and this checkpoint had no business rewriting it.
+
+      This is also the third instance of the same shape, after Q52 and Q69. The pattern is not a series of
+      accidents: nothing in the test convention states that a `_orders` test owns the rows it stands on,
+      so each feature rediscovers it.
+
+## Q75 · contradiction · blocking: no
+
+**Raised at** checkpoint 5's verification of #run-record, 2026-09-25. **Q70's contradiction has a
+consequence outside §10, and the consequence lands on a feature that has no table to fix it with.**
+<!-- spec: run-list -->
+
+Q70 records that §10 describes `ai_run_steps.finished_at` as *"NULL while it is running"* while making
+`outcome_code` `NOT NULL` in the same table — no implementation satisfies both, and the one taken writes
+the row once at close, so `finished_at` null means "cut short" rather than "in flight".
+
+**§13 (#run-list) depends on the half that cannot be satisfied.** It requires:
+
+> a run in progress reports which step it is on, and which reading of how many
+
+and declares *"No table of its own. Reads the run record and its steps."*
+
+Under one-write-at-close there is no row for the step a run is **currently** on — the newest row is the
+last step that *closed*. And **"which reading of how many" has no column anywhere in §10's model**:
+`agreed_reading_count` and `total_reading_count` sit on `ai_run_field_outcomes`, written once per field
+at settle time, and are not live counters.
+
+`.hora/contracts/1.0.0/client-api.md` inherits the same expectation — `AiRunsResponse` carries "the
+decomposed running state (`stepName`, `stepIndex`, `readingIndex`, `readingCount`, `progressRatio`)".
+**#run-progress (§14) is not affected**; its step indices ride on events rather than on these rows.
+
+- [x] resolved 2026-09-25 — **§13 narrowed, and the contract brought into line with it**
+      The owner chose the third shape. §13's second criterion now reads "a run in progress reports the
+      last step that completed", and `AiRunsResponse` carries "the last completed step (`stepName`,
+      `stepIndex`)" in place of the five-field running state.
+
+      **This cuts a promise to the client rather than clarifying one, and is recorded as a cut.** What
+      goes is `readingIndex`, `readingCount` and `progressRatio` — so a caller can no longer show
+      "reading 2 of 3" or a progress bar, only the name of the last step that finished. If that is
+      asked for later, this is where it was given up.
+
+      §13's three use cases needed no change; none of them named the reading pair. `ai_model_calls.
+      reading_index` stays — it is a per-call column #provider-layer built for billing and
+      reproduction, not the live counter §13 wanted.
+
+      **The contract was pulled toward the spec, not away from it.** A contract change is ordinarily
+      `contractDrift` and a finding; here it is the deliberate consequence of a scope decision, made in
+      the same write as the criterion it follows.
+
+      **Q70 stays open.** The rejected alternative — a row written at step open — would have closed both
+      at once, because a step lost to a crash would then leave a row. Narrowing §13 buys nothing there,
+      so the crash-loses-the-step cost is unchanged and still recorded.
+
+- [x] the original framing, kept for the record
+      The routing table names stage 4 for "a use case the data model cannot represent", which is exactly
+      this. Three shapes could close it, and choosing is the owner's:
+
+      1. **A row at open.** Seed a `running` outcome code, write the step when it starts and update it at
+         close. Costs an extra write per step and makes `outcome_code` mean two things.
+      2. **Live counters on `ai_runs`.** A current step name, index and reading pair maintained on the run
+         row itself — which is denormalization, and the database rule prefers rows to columns.
+      3. **Narrow §13.** A run in progress reports the last step that *completed*, and the reading pair is
+         dropped from the contract. Cheapest, and it changes what a client is promised.
+
+      **Raised now rather than at §13's gate**, because §13 arrives with nothing to read and its
+      checkpoint 1 would fail on a spec defect three features old. Nothing here is a defect in what
+      #run-record built — the verifier judged the implementer's reading the only self-consistent one and
+      passed the checkpoint on it.
+
+## Q76 · undefined-detail · blocking: no
+
+**Raised at** checkpoint 9 of #run-record, 2026-09-25. **The seeded record shows four rows in states
+this feature's own writers refuse to produce.**
+<!-- spec: run-record -->
+
+§10 says an operator reads these rows **directly on the machine** this version, so the seeded
+development record is the whole of the surface an operator has. On that surface, verified by query
+across all ten seeded runs:
+
+- both `failed` runs (`10010005`, `10010009`) carry `failure_reason_code = NULL` — the exact state
+  `saveFailedAiRun()` now refuses to write;
+- both `canceled` runs (`10010006`, `10010010`) carry `cancel_requested_at = NULL` **and**
+  `canceled_at = NULL` — a state `saveCanceledAiRun()` cannot produce, since it always writes the
+  second.
+
+So an operator walking the seeded canceled run can measure no gap at all, which is precisely what
+acceptance criterion 5 promises is measurable.
+
+- [ ] open
+      The rows live in `#run-contract`'s `sequelize/seeders/development/20260923100004-000002-ai_runs.cjs`,
+      which predates this feature and whose own criteria never mentioned these columns. **But criteria
+      4 and 5 are this feature's**, and this feature seeded a failed, a canceled and a running trace
+      into `ai_run_steps` without filling in the run rows those traces hang off.
+
+      **The mitigation, not a fix:** the failed run's step does carry `reason_code: 'media-unreadable'`,
+      so the trace answers *why* even where the run row does not.
+
+      Four values would close it, with the two cancellation instants differing by a measurable gap on
+      at least one run.
+
+## Q77 · contract-drift · blocking: no
+
+**Raised at** checkpoint 9 of #run-record, 2026-09-25. **A vocabulary the contract already fixes, and
+four near-misses of it written as the only worked examples.**
+<!-- spec: run-record -->
+
+`.hora/contracts/1.0.0/client-api.md` fixes a **closed set of seven** codes for `failure.reasonCode`,
+which is `ai_runs.failure_reason_code` rendered: `MEDIA_FETCH_FAILED`, `MEDIA_LIMIT_EXCEEDED`,
+`MEDIA_UNSUPPORTED`, `MEDIA_UNREADABLE`, `PROVIDER_CALL_FAILED`, `OUTPUT_INVALID`,
+`TIME_LIMIT_EXCEEDED`.
+
+This feature's tests write four literals into that column that are near-misses of that set, in the
+wrong case:
+
+| written | the contract's |
+|---|---|
+| `media_unreachable` (x3) | `MEDIA_FETCH_FAILED` |
+| `run_time_limit_reached` (x2) | `TIME_LIMIT_EXCEEDED` |
+| `media_unreadable` | `MEDIA_UNREADABLE` |
+| `media_too_large` | `MEDIA_LIMIT_EXCEEDED` |
+
+**Nothing shipped drifts** — no production code writes a failure code yet. It matters because these
+are the only worked examples #run-execution will copy, and `saveFailedAiRun()` accepts any non-blank
+string, so nothing catches the divergence.
+
+**This is not Q71.** Q71 covers three columns on `ai_run_steps` with no master and no contract entry.
+`ai_runs.failure_reason_code` is the one column of the set whose vocabulary **is** already fixed, in
+the contract — so it needs pinning in code, not deciding.
+
+- [ ] open
+      The repository already has the pattern: `app/constants/aiRunRefusalConstants.js`, from
+      #run-contract, pins the refusal statuses the same contract declares. There is no equivalent for
+      the failure reason codes, and a constants file plus corrected literals would close it.
+
+## Q78 · undefined-detail · blocking: no
+
+**Raised at** checkpoint 9 of #run-record, 2026-09-25. **The link this feature exists to add can point
+at another run's step, and nothing notices.**
+<!-- spec: run-record -->
+
+Confirmed by execution, not by reading: a field outcome was written with `aiRunId` of one run and
+`aiRunStepId` of a step belonging to a **different** run, and the row was accepted. There is no
+database foreign key — correct, per the ORT rule that integrity is enforced in application code — no
+application check, and no test.
+
+`AiRunStepId` was added at this feature's checkpoint 2 for one reason: §10's second use case reads a
+field's reason code off the step that settled it. **A mis-wired caller produces a field outcome whose
+"the step that settled it" belongs to another run**, and the operator reads someone else's reason code
+for their missing field, silently, with no way to tell.
+
+The seeded data is consistent — zero mismatches and zero orphans across all 12 outcomes and 20 steps
+— so nothing is wrong today.
+
+- [ ] open
+      Not an acceptance criterion, so it did not make checkpoint 9 unmet. But it is the one hole in the
+      very link this feature was extended to provide, and the cheapest place to close it is in
+      `AiRunFieldOutcomeRecorder` — read the step and refuse when its `AiRunId` is not the one handed
+      in — beside the guard that already refuses a blank failure reason.
+
+      #run-execution is the first caller, so it is the first thing that could get it wrong.
+
+## Q79 · undefined-detail · blocking: no
+
+**Raised while closing Q76, 2026-09-25. Same class of defect as Q76, found in the same surface.**
+<!-- spec: run-record -->
+
+**The seeded record has a run's steps running two days after the run finished.** The run seeder
+(`20260923100004-000002-ai_runs.cjs`, #run-contract's) puts its instants on **2026-09-10**; the step
+seeder this feature added (`20260925110001-000004-ai_run_steps.cjs`) puts its `started_at` /
+`finished_at` on **2026-09-12**.
+
+So an operator reading run `10010004` sees it accepted, started and finished on the 10th, and its
+seven steps running on the 12th. Nothing in the schema forbids it and no criterion reads across the
+two files, so no test fails — but §10 says an operator reads these rows **directly on the machine**
+this version, and the record is therefore the only thing they have to learn what a real trace looks
+like.
+
+This is exactly why Q76 mattered: a fixture that shows an impossible state teaches that state.
+
+- [ ] open
+      **Cheap now, and it only gets more expensive.** The step seeder is this feature's own file and
+      the fix is to move its instants inside each run's own window — `accepted_at` < the steps <
+      `finished_at`. Twenty rows.
+
+      It was not fixed while Q76 was, because the unit that found it had been told to touch one file
+      and correctly did not reach into another's. Recorded rather than done quietly so the choice is
+      visible.
+
+## Q80 · contract-drift · blocking: no
+
+**Raised while closing Q77, 2026-09-25. Three things, and the first is the orchestrator's own error.**
+<!-- spec: run-record -->
+
+**1. The brief asserted a precedent that does not exist.** Q77's unit was told to copy
+`constants/aiRunRefusalConstants.cjs` and its bridge. **There is no such `.cjs` file.** The refusal
+constants are a single ESM file at `app/constants/aiRunRefusalConstants.js`, with no CommonJS half and
+no bridge. The unit found the repository's real two-file pattern by itself
+(`constants/aiRunStatusConstants.cjs` + its bridge) and gave the reason the shape matters: **a seeder
+can `require` a `.cjs`**, which the refusal file's shape cannot serve.
+
+This is the same failure as the `SHORT_COLUMN_NAME` map asserted earlier in this project and found not
+to exist — a brief stating a fact about the tree that the tree does not hold. The unit is what caught
+it both times.
+
+**2. Two more invented failure codes, in a file nobody was handed.**
+`tests/__tests__/app/aiRun/AiRunStatusRecorder.js` carries `'run.failure.model.unavailable'` and
+`'run.failure.medium.unreadable'` — the same dotted invention Q77 corrected in the `_orders` sibling,
+in the `__tests__` file of the same class. Checkpoint 9's finding named only `tests/_orders/`, so no
+unit's scope reached them.
+
+Two further strings, `'run.failure.10230072'` and `'run.failure.10230075'`, sit in the `_orders` file
+on status-transition refusal cases where the failure code is not what the case is about. They are
+id-derived fixtures rather than near-misses of the vocabulary, but a `#run-execution` author copying
+that file copies them too.
+
+**3. The honest drift guard cannot live in the backend, and the reasoning is worth keeping.** A test
+asserting that the constants file matches the contract has no precedent — **no test in this repository
+reads a `.hora/` file, and no constant hash here has a test at all.** Worse, `tsdg-ai-backend` is its
+own git repository and `.hora/contracts/` lives in the parent workspace, so such a test would reach
+outside its own repo and **fail on a lone checkout for an absent file rather than a wrong set** — a
+guard that cries for the wrong reason.
+
+- [ ] open
+      **The proposal, which I did not build:** the comparison belongs at the workspace root, where both
+      files are in reach — `/hora`'s own verification, diffing the contract's table against
+      `constants/aiRunFailureReasonConstants.cjs`. That is the only place the assertion is honest.
+
+      A presence test inside the backend (seven `toHaveProperty` cases) would pin the seven **twice in
+      one repository** and still not see the contract move. It catches a deleted or misspelled key and
+      nothing else, and it would be the first test any constant hash here has ever had.
+
+## Q81 — a test case's inputs are named `input` here and `params` in the testing rule
+
+- category: convention
+- blocking: no
+- raised by: checkpoint 8, round four of `#run-record`
+
+The testing rule fixes the set of fields a `test.each` case may carry, and names `params` for the
+inputs to the member under test. Every test file under `tests/_orders/AiRun/` uses `input` instead —
+51 occurrences in `AiRunFieldOutcomeRecorder.js` alone — and so do the `constructor` and `.create()`
+describes throughout `tests/__tests__/app/aiRun/`. The `npm-package` rule's own worked example also
+shows `{ input: { key: 'EQUALS' } }`, so the divergence is in the standard, not only in this repo.
+
+I added this round's cases as `input`, to keep one shape per file rather than introduce a second one
+beside it. That is a reader's choice, not a ruling.
+
+- [ ] open
+      **What has to be decided is which of the two the rule means**, and then whether the existing
+      files are converted or the rule is widened to admit both. Converting is mechanical and touches
+      every test file of this feature; widening costs nothing today and leaves two spellings for the
+      next reader to wonder about.
+
+      Not raised against any one file, because no file is wrong on its own — they agree with each
+      other and disagree with the rule.
+
+## Q82 — three recorders declared `Date` and none of them asked
+
+- category: design
+- blocking: no
+- raised by: checkpoint 8, round four of `#run-record`
+
+Fixed this round, and recorded because the shape is worth naming rather than the instance.
+
+`AiRunStatusRecorder`, `AiRunStepRecorder` and `AiRunFieldOutcomeRecorder` each declared `Date` in
+the JSDoc of the parameters carrying an instant, and each wrote whatever arrived straight into a
+`datetime(3)` column, where Sequelize coerced it. A JSDoc type is not a guard, and every one of the
+six instant columns of this feature's decision trace accepted the literal text `Invalid date`.
+
+- [ ] open
+      **The question is not this feature's, which is why it is recorded rather than closed.** Every
+      `find~`/`save~` method in this repository declares its parameter types the same way, and
+      nothing anywhere turns a declared type into a check. This feature now holds three call sites
+      that do, through `AiRunInstantInspector`.
+
+      Worth deciding once, for the repository: whether an instant reaching a column is checked at
+      each writer, or whether the base model is where a `DATE(3)` attribute refuses a value that is
+      not one — which would cover every table at once and need no writer to remember.
+
+## Q83 — `instanceof Date` refuses an instant that crossed a realm or a queue
+
+- category: design
+- blocking: no
+- raised by: checkpoint 8, round four of `#run-record`
+
+`AiRunInstantInspector` requires a real `Date`, deliberately — coercion is how a value that was not
+a time reached six columns of the decision trace, and accepting a string that happens to parse would
+leave the door open for the next string that does not. The consequence is recorded here rather than
+disputed.
+
+`instanceof` fails across realms, and it fails on anything that has been serialized. The recorders
+are reached from `#run-execution` and `#run-cancel`, whose background work goes through a job queue
+where a payload round-trips as JSON — and a `Date` arrives on the worker side as a string.
+
+- [ ] open
+      **Whoever writes that caller has to rebuild the `Date` before handing it over**, and nothing
+      today says so out loud where they will be standing. Not a defect in this feature: no caller
+      exists yet, and the guard is correct for every caller that hands in what the signature asks
+      for.
+
+      Worth settling when `#run-execution` is planned — either as a note in that feature's file, or
+      by deciding that the boundary which deserializes a job payload is where instants are
+      reconstructed once, for every field, rather than per recorder.
+
+## Q84 — one key is compared as it arrived while its two neighbours are normalized
+
+- category: design
+- blocking: no
+- raised by: checkpoint 8, round four of `#run-record`
+
+`AiRunFieldOutcomeRecorder` states the rule at the top of the class: a `BIGINT` key may reach it as
+text, from MariaDB or from a request, and a value compared in the form it arrived in would refuse
+pairs that match. `AiRunId` and `AiRunFieldStatusId` both go through a normalizer for exactly that
+reason. `AiRunEvidenceCategoryId` does not.
+
+The effect is fail-closed, so no wrong row: `aiRunEvidenceCategoryId: '1'` is refused. But the
+message then reads `refused an evidence kind naming no master row: AiRunEvidenceCategoryId 1`, and
+master row 1 exists — so the log names a defect that did not occur, which is the class of finding
+this checkpoint has now raised four times.
+
+Predates every round; recorded rather than fixed because the fix is a third normalizer and the
+question underneath it is whether each recorder should carry its own.
+
+- [ ] open
+      **Related to [Q82](#) and decided with it, or separately.** Q82 asks whether a declared `Date`
+      is checked at each writer or at the base model; this asks the same of a `BIGINT` key. Both
+      answers point at the same place: a model layer that holds an attribute to its declared kind
+      would cover every table at once, and would need no writer to remember.

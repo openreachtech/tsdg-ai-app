@@ -99,9 +99,8 @@ screen.
 ### `AiRunsResponse`
 
 `runs[]` — per run: `runKey`, `runCategoryName`, `subjectLabel`, `correlationId`,
-`externalRef`, `statusName`, the decomposed running state (`stepName`, `stepIndex`,
-`readingIndex`, `readingCount`, `progressRatio`), `elapsedSeconds`, `modelCallCount`,
-`inputTokenCount`, `acceptedAt` — plus `nextCursor`.
+`externalRef`, `statusName`, the last completed step (`stepName`, `stepIndex`),
+`elapsedSeconds`, `modelCallCount`, `inputTokenCount`, `acceptedAt` — plus `nextCursor`.
 
 ### `AiRunCancellationResponse`
 
