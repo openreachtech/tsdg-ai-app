@@ -2426,3 +2426,100 @@ guard that cries for the wrong reason.
       A presence test inside the backend (seven `toHaveProperty` cases) would pin the seven **twice in
       one repository** and still not see the contract move. It catches a deleted or misspelled key and
       nothing else, and it would be the first test any constant hash here has ever had.
+
+## Q81 — a test case's inputs are named `input` here and `params` in the testing rule
+
+- category: convention
+- blocking: no
+- raised by: checkpoint 8, round four of `#run-record`
+
+The testing rule fixes the set of fields a `test.each` case may carry, and names `params` for the
+inputs to the member under test. Every test file under `tests/_orders/AiRun/` uses `input` instead —
+51 occurrences in `AiRunFieldOutcomeRecorder.js` alone — and so do the `constructor` and `.create()`
+describes throughout `tests/__tests__/app/aiRun/`. The `npm-package` rule's own worked example also
+shows `{ input: { key: 'EQUALS' } }`, so the divergence is in the standard, not only in this repo.
+
+I added this round's cases as `input`, to keep one shape per file rather than introduce a second one
+beside it. That is a reader's choice, not a ruling.
+
+- [ ] open
+      **What has to be decided is which of the two the rule means**, and then whether the existing
+      files are converted or the rule is widened to admit both. Converting is mechanical and touches
+      every test file of this feature; widening costs nothing today and leaves two spellings for the
+      next reader to wonder about.
+
+      Not raised against any one file, because no file is wrong on its own — they agree with each
+      other and disagree with the rule.
+
+## Q82 — three recorders declared `Date` and none of them asked
+
+- category: design
+- blocking: no
+- raised by: checkpoint 8, round four of `#run-record`
+
+Fixed this round, and recorded because the shape is worth naming rather than the instance.
+
+`AiRunStatusRecorder`, `AiRunStepRecorder` and `AiRunFieldOutcomeRecorder` each declared `Date` in
+the JSDoc of the parameters carrying an instant, and each wrote whatever arrived straight into a
+`datetime(3)` column, where Sequelize coerced it. A JSDoc type is not a guard, and every one of the
+six instant columns of this feature's decision trace accepted the literal text `Invalid date`.
+
+- [ ] open
+      **The question is not this feature's, which is why it is recorded rather than closed.** Every
+      `find~`/`save~` method in this repository declares its parameter types the same way, and
+      nothing anywhere turns a declared type into a check. This feature now holds three call sites
+      that do, through `AiRunInstantInspector`.
+
+      Worth deciding once, for the repository: whether an instant reaching a column is checked at
+      each writer, or whether the base model is where a `DATE(3)` attribute refuses a value that is
+      not one — which would cover every table at once and need no writer to remember.
+
+## Q83 — `instanceof Date` refuses an instant that crossed a realm or a queue
+
+- category: design
+- blocking: no
+- raised by: checkpoint 8, round four of `#run-record`
+
+`AiRunInstantInspector` requires a real `Date`, deliberately — coercion is how a value that was not
+a time reached six columns of the decision trace, and accepting a string that happens to parse would
+leave the door open for the next string that does not. The consequence is recorded here rather than
+disputed.
+
+`instanceof` fails across realms, and it fails on anything that has been serialized. The recorders
+are reached from `#run-execution` and `#run-cancel`, whose background work goes through a job queue
+where a payload round-trips as JSON — and a `Date` arrives on the worker side as a string.
+
+- [ ] open
+      **Whoever writes that caller has to rebuild the `Date` before handing it over**, and nothing
+      today says so out loud where they will be standing. Not a defect in this feature: no caller
+      exists yet, and the guard is correct for every caller that hands in what the signature asks
+      for.
+
+      Worth settling when `#run-execution` is planned — either as a note in that feature's file, or
+      by deciding that the boundary which deserializes a job payload is where instants are
+      reconstructed once, for every field, rather than per recorder.
+
+## Q84 — one key is compared as it arrived while its two neighbours are normalized
+
+- category: design
+- blocking: no
+- raised by: checkpoint 8, round four of `#run-record`
+
+`AiRunFieldOutcomeRecorder` states the rule at the top of the class: a `BIGINT` key may reach it as
+text, from MariaDB or from a request, and a value compared in the form it arrived in would refuse
+pairs that match. `AiRunId` and `AiRunFieldStatusId` both go through a normalizer for exactly that
+reason. `AiRunEvidenceCategoryId` does not.
+
+The effect is fail-closed, so no wrong row: `aiRunEvidenceCategoryId: '1'` is refused. But the
+message then reads `refused an evidence kind naming no master row: AiRunEvidenceCategoryId 1`, and
+master row 1 exists — so the log names a defect that did not occur, which is the class of finding
+this checkpoint has now raised four times.
+
+Predates every round; recorded rather than fixed because the fix is a third normalizer and the
+question underneath it is whether each recorder should carry its own.
+
+- [ ] open
+      **Related to [Q82](#) and decided with it, or separately.** Q82 asks whether a declared `Date`
+      is checked at each writer or at the base model; this asks the same of a `BIGINT` key. Both
+      answers point at the same place: a model layer that holds an attribute to its declared kind
+      would cover every table at once, and would need no writer to remember.

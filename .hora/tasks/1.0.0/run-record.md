@@ -144,7 +144,56 @@ Constraint: a model call is never retried automatically (#scope, permanently out
       -->
 - [x] 6. Actual API  <!-- n/a: this feature adds no API operation at all -- the same fact that made checkpoint 4 n/a, confirmed there three ways rather than inferred from silence. The exit condition's second half, that the unit tests covering this feature's acceptance criteria pass, is not waived by that: all six were written and run at checkpoint 5, which is where the modules they exercise live. This differs from #run-contract, where the same clause did NOT make 6 n/a, because that feature delivered the request path itself. -->
 - [x] 7. Worker  <!-- skills: hor-execution-placement-pattern; digests: hora-skills-ort-renchan 0.2.1 -->  <!-- n/a: decided with the placement skill rather than by eye, as the checkpoint requires. Its decision flow opens with Is it a write? -- and these modules are writes. But they sit in no request path, because this feature has none, and the thing that will call them is the worker #run-execution declares in section 11. This feature builds the recorders, not the thing that invokes them -- the same shape as #provider-layer's checkpoint 7, which built the driver and not its caller. The skill's own rule of thumb points the same way: it puts external I/O, AI calls, large record counts and file generation on the heavy side, and all three recorders are single-row inserts against the local database. Nothing this feature owns belongs outside a request path it does not have. -->
-- [ ] 8. Security audit
+- [x] 8. Security audit  <!-- skills: hor-security-audit; digests: hora-skills-ort-core 0.4.0 -->  <!-- agents: 7 verifier rounds; wall-time: ~5400s -->
+      <!--
+      Seven rounds. The first three found real defects of substance; the last four found no HIGH
+      and no MEDIUM, and every finding of every round is closed.
+
+      **What the substantive rounds found.** A rejection carrying a name, an address and a medical
+      status verbatim into a column kept 730 days while the content it describes is purged at 30.
+      A prototype-borne `callbackUrl` reaching the column through the public method, because the
+      allow-list was read with `Object.keys` while Sequelize's setter walks the chain. A field
+      state normalized for the decision and written raw, so `'01'` coerced to 1 and a row said a
+      field came out `extracted` on no evidence. Counts taking free text. Two master ids checked by
+      nothing, on a table that declares no database foreign key by the rule that integrity is
+      application code.
+
+      **Then one family, for four rounds: a refusal, a docblock or a test title stating something
+      the code does not do.** Every round closed its instances and the next found the same shape
+      one door narrower - which is the entry worth reading later, because the pattern is not that
+      the guards were wrong. They held. What kept being wrong was what the code said about itself.
+
+      Three times a rule this feature states in prose turned out to be enforced in some of the
+      places it applies and not others, and all three ended the same way - the rule given one place
+      to live and injected through the seam this feature already uses: `AiRunInstantInspector` for
+      an instant (three recorders declared `Date` and none asked), `AiRunKeyInspector` for a key
+      (one recorder held both of its keys to a shape while the recorder beside it wrote eight
+      messages out of a key nothing had checked).
+
+      **The section 10 reading was attacked hardest and stood.** Both `AiRunEvidenceCategoryId` and
+      `suggestion_confidence` are declared NULL *when nothing was settled*, so on a settled field a
+      null is the marker for the opposite state; writing it made a dropped score indistinguishable
+      from a field nothing scored, on the one row the second use case reads. Round five verified
+      against the spec's own text (`:427`, `:827`, `:829`) that no legitimate settled state is made
+      unrecordable by refusing it - the three dropped-field paths all land on `missing`, which
+      reaches none of the guards.
+
+      **Two residuals are written into the code rather than claimed closed:** a sentence joined by
+      the characters the three rejection patterns allow passes all three, and a run of nineteen
+      digits or fewer is a key whatever else it may also be. Both say where the guarantee actually
+      rests - on the callers that build those texts - because a reader who took the pattern for the
+      whole truth would not look there.
+
+      Q81-Q84 recorded: the `input` versus `params` divergence between this repo and the testing
+      rule; a declared `Date` and a declared `BIGINT` checked at each writer rather than at the base
+      model; and `instanceof Date` refusing an instant that crossed a job queue as JSON, which is
+      `#run-execution`'s to answer.
+
+      **Round eight's fixes rest on mutation testing, not on an eighth audit.** Seven rounds closed
+      every finding and the seventh said it had nothing left in scope once its two were closed; the
+      last commit was verified by six mutants, all killed, and by both suites and lint. Recorded
+      here rather than passed over in silence.
+      -->
 - [ ] 9. Verify the use cases again, against the built API
 
 ## Frontend gate
