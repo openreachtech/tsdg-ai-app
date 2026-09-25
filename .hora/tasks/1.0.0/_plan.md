@@ -4,7 +4,7 @@
 
  1. [x] #run-contract             backend
  2. [x] #provider-layer           backend   depends: run-contract
- 3. [ ] #run-record               backend   depends: run-contract
+ 3. [x] #run-record               backend   depends: run-contract
  4. [ ] #run-execution            backend   depends: run-record
  5. [ ] #media-fetch              backend   depends: run-execution
  6. [ ] #run-delivery             backend   depends: run-execution
