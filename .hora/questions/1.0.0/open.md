@@ -1998,3 +1998,185 @@ traces" runs on the long clock and selects by date, and neither table has an ind
       likely 5 or 6 of this feature. The index belongs to #retention, eleventh, which can add it in a
       migration of its own; noted so it is designed rather than rediscovered when a purge over two
       years of trace rows turns out to be a table scan.
+
+## Q69 · convention-violation · blocking: no
+
+**Raised at** checkpoint 5 of #run-record, 2026-09-25. **Caused by the orchestrator's own briefs, found
+by running the suite together rather than by review.**
+<!-- spec: run-record -->
+
+**Three of the checkpoint's four units were told different things about the same table.** `ai_run_steps`
+carries a UNIQUE index on `(AiRunId, step_index)`, and the briefs said: one unit should reference the
+runs `#run-contract` seeded, one should create its own, and the seeder unit should seed steps onto the
+seeded runs. The result:
+
+| writer | runs it used |
+|---|---|
+| the step seeder | `10010001`, `10010003`, `10010004`, `10010005`, `10010006` |
+| `AiRunStepRecorder`'s order test | `10010007`–`10010010` |
+| `AiRunFieldOutcomeRecorder`'s order test | `10010001`, `10010002`, `10010008`–`10010010` |
+| `AiRunStatusRecorder`'s order test | **created its own, `10230001`+** |
+
+Two overlaps, both real: the first two tests share runs `10010008`–`10010010`, and the outcome test
+shares run `10010001` with the seeder.
+
+**Every unit reported its own allocation as disjoint, and every one of them was right about its own
+file** — each had only ever run its own test. The first run of the folder together was the gather step,
+and it failed immediately: `4 failed, 90 passed`, all four on `step_index must be unique`.
+
+- [x] fixed — each order test now creates the runs it needs, in its own id block
+      `AiRunStatusRecorder`'s unit reached that shape on its own, unprompted, and said why: moving a
+      seeded run "would surface as their failure". That is the pattern the other two were moved onto.
+
+      **The rule this restores, worth stating once:** a test in `_orders` must not depend on rows another
+      test or a seeder writes. Order in the barrel is for stating a real dependency between tests, not
+      for keeping two independent files out of each other's way. Two of these passed only because the
+      barrel happened to run them in the order that let the first claim its runs.
+
+      **The alternative was rejected deliberately.** Partitioning the ten seeded runs between writers
+      would need an allocation table nobody writes down — which is exactly what failed here — and the
+      pool is finite while #run-execution, #run-delivery, #run-list and #run-cancel all still want runs.
+
+## Q70 · undefined-detail · blocking: no
+
+**Raised at** checkpoint 5 of #run-record, 2026-09-25.
+<!-- spec: run-record -->
+
+**§10 gives `ai_run_steps` two columns that describe incompatible lifecycles.** `outcome_code` is
+`NOT NULL`; `finished_at` is documented as "NULL while it is running". The second anticipates a row
+that exists *while* a step is in flight; the first makes such a row impossible to insert honestly,
+because no outcome has been derived yet.
+
+It was resolved in favor of the `NOT NULL`: the recorder writes one row when the step closes, and
+`finished_at` null means a step that was **cut short** rather than one in flight.
+
+- [ ] open — **the cost is stated, and it is a real one**
+      **A step lost to a process crash leaves no row at all**, so the decision trace of a hard-killed
+      worker stops at the last step that closed. For a table whose whole purpose is answering "what did
+      this run actually do", that is the case where it answers least.
+
+      Two ways out, both `specs/` work: a `running` outcome code seeded into the master alongside the
+      others, or `outcome_code` made nullable. Neither is this feature's to choose alone — #run-execution
+      is what will crash, and it is not built.
+
+      The development seeder already carries an `in-progress` outcome code on one row, invented to seed
+      a running step. That value exists in data and in no specification.
+
+## Q71 · undefined-detail · blocking: no
+
+**Raised at** checkpoint 5 of #run-record, 2026-09-25. **A vocabulary now exists in data and nowhere
+else.**
+<!-- spec: run-record -->
+
+**`step_name`, `outcome_code` and `reason_code` are free strings with no master table, no constants file
+and no list in §10.** The statuses, the step categories, the field states and the evidence kinds all have
+master tables; these three have nothing.
+
+The development seeder had to invent the first set to seed a plausible trace:
+
+- **`step_name`** — `filter-suggestible-fields`, `fetch-media`, `read-media`, `drop-disallowed-readings`,
+  `settle-by-majority`, `score-confidence`, `await-owner-decision` (one per §20 step, in order)
+- **`outcome_code`** — `fields-kept`, `media-fetched`, `readings-returned`, `readings-dropped`,
+  `fields-settled`, `confidence-scored`, `decision-recorded`, `media-fetch-failed`, `in-progress`,
+  `step-canceled`
+- **`reason_code`** — `schema-check-dropped-readings`, `majority-not-reached-for-some-fields`,
+  `media-unreadable`, `canceled-before-completion`
+
+The status recorder's tests independently invented `media_unreachable` and `run_time_limit_reached` —
+**in snake_case, where the seeder used kebab-case.** That divergence appeared inside one checkpoint,
+between two units of the same feature, which is the clearest possible evidence that nothing pins it.
+
+- [ ] open
+      **Whoever builds #run-execution decides this**, and will either adopt what is seeded or contradict
+      it. If a reason code is ever read back, translated or filtered on, it needs a master table like
+      every other classification in this schema; if it is only ever a string in a log, it needs saying
+      once in §10 that it is.
+
+      Recorded now because the cost rises with every row written against an unpinned value.
+
+## Q72 · undefined-detail · blocking: no
+
+**Raised at** checkpoint 5 of #run-record, 2026-09-25. **Three things the status recorder had to decide
+that belong to #run-cancel.**
+<!-- spec: run-record -->
+
+**1. A cancellation arriving after the run has already settled.** §10 is silent. It is refused: the
+cancel-request write goes through the same terminal guard, so `cancel_requested_at` is never stamped onto
+a run that finished — an instant recorded there would read as a gap that was never waited out. Whether
+the API answers that with `409` or with the settled run as it stands is #run-cancel's.
+
+**2. Whether `finished_at` is written when a run is canceled, and whether it equals `canceled_at`.** §10
+names the two cancellation instants and says nothing about `finished_at`. Rather than deriving one from
+the other, the method takes **both** on the call, so whether they coincide is the caller's statement and
+not the class's assumption.
+
+**3. A read-then-write window.** The guarded writer reads the run and then writes it — two statements —
+so a cancellation taking effect at the same instant a worker records success could pass the guard on the
+status it had already read.
+
+- [ ] open, all three
+      **The third is the one that matters and it is deliberately left open.** Closing it means a
+      conditional write with the terminal statuses in the `WHERE` and an affected-row count to interpret.
+      **This feature has no second concurrent writer** — nothing dispatches a run and nothing cancels one
+      until #run-execution and #run-cancel exist. Whichever of those introduces the second writer is where
+      the window has to be closed, and the class's own JSDoc says so.
+
+      Writing the conditional now would be a concurrency guard verified by nothing, in a feature where the
+      race cannot occur.
+
+## Q73 · undefined-detail · blocking: no
+
+**Raised at** checkpoint 5 of #run-record, 2026-09-25.
+<!-- spec: run-record -->
+
+**§10 does not settle whether a field that *was* settled may carry a null `suggestion_confidence`.** The
+column is nullable and its stated meaning is "NULL when nothing was settled", so a settled field with a
+null score is a row the schema permits and the prose does not describe.
+
+The recorder does not refuse it. That is deliberate: the score is the scorer's to compute, and refusing it
+here would be this class deciding a policy §10 left open — the same reason nothing in the status recorder
+infers a failure from an empty result.
+
+- [ ] open
+      One sentence in §10 either way settles it. The question becomes live when
+      `AssetFieldConfidenceScorer` is built in #asset-media-extraction, which is the thing that would
+      produce — or refuse to produce — a settled field with no score.
+
+## Q74 · undefined-detail · blocking: no
+
+**Raised at** checkpoint 5 of #run-record, 2026-09-25. **Two properties of the `_orders` tree, measured
+rather than assumed.**
+<!-- spec: none -->
+
+**1. `tests/_orders/` is not idempotent, tree-wide.** Run it twice against the same database without
+re-seeding and it fails: `66 failed, 28 passed` across three of the four folders. Every failure is a
+re-insert of a row the first run wrote — 42 × `id must be unique`, 4 × `api_client_id must be unique`,
+4 × `request_key must be unique` in the `AiRun` folder alone, and `AiAgent` and `AiTool` fail the same
+way. Only `AiModelCall` survives a second run.
+
+This is **pre-existing and not caused by any work here** — the same holds for folders this feature never
+touched. It is recorded because every brief in this session has had to carry the words "re-seed before
+every `_orders` run", and a reader who does not know this will diagnose a dirty database as a defect.
+
+- [ ] open
+      Making the tree idempotent would mean teardown, or auto-increment ids, in every folder. That is a
+      decision about the whole test convention, not about any one feature, and it is worth making
+      deliberately rather than discovering again at the next gate.
+
+**2. One order test still borrows another feature's seeded rows, latently.**
+`tests/_orders/AiModelCall/AiModelCallRecorder.js` writes `ai_model_calls` rows hung off
+`#run-contract`'s seeded runs `10010001`, `10010002`, `10010004`, `10010005`.
+
+It is the same rule Q69 restored, and it **cannot bite today**: `ai_model_calls` carries no UNIQUE index
+beyond `id`, and no seeder writes that table, so there is nothing for a second writer to collide with.
+It is latent, not broken.
+
+- [ ] open
+      It becomes live the moment anything seeds `ai_model_calls` — which Q68 already says a later feature
+      will want — or the moment that table gains a composite unique. Cheap to move now, the same way the
+      two step-writing tests were just moved; left alone here because it belongs to #provider-layer's
+      change set and this checkpoint had no business rewriting it.
+
+      This is also the third instance of the same shape, after Q52 and Q69. The pattern is not a series of
+      accidents: nothing in the test convention states that a `_orders` test owns the rows it stands on,
+      so each feature rediscovers it.

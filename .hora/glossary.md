@@ -40,6 +40,11 @@ read from the package itself** under the backend row's `node_modules/`.
 | decision trace | — | concept | backend | the step, field-outcome and model-call rows. The long clock |
 | what a step dropped | `rejections` | field | backend | column on `ai_run_steps`. The field path, the reason code and figures — **never a value read out of a medium**. See below for the name |
 | the three evidence kinds | `visible-text`, `visual-estimate`, `category-prior` | master row values | backend | the seeded `name` of each `ai_run_evidence_categories` row, taken from §6's terminology table |
+| terminal status | `TERMINAL_AI_RUN_STATUS_IDS` | concept, constant | backend | succeeded, failed and canceled — the three a run never leaves. `AiRunTerminalStatusInspector` is the only thing that answers the question |
+| ongoing run | — | concept | backend | a run in neither terminal state. The noun `AiRunStatusRecorder#saveOngoingAiRun()` is named for |
+| what a step was called | `stepName` | field | backend | free string, **no master table and no constant** — the first values exist only in the development seeder. See Q71 |
+| how a step ended | `outcomeCode` | field | backend | free string, same gap as `stepName`. `NOT NULL`, which is why a step is recorded once at close rather than opened and updated — see Q70 |
+| what a step dropped, one entry | `AiRunStepRejection` | typedef | backend | `{ fieldPath, reasonCode, figures }`, the three things §10 names. Documentation, not enforcement — only the caller can keep the promise that no read value goes in |
 | the step-category constant set | `AI_RUN_STEP_CATEGORY` | constant hash | backend | `constants/aiRunStepCategoryConstants.cjs`. Three rows, ids 1–3. **No ESM bridge yet** — see Q65 |
 | the field-state constant set | `AI_RUN_FIELD_STATUS` | constant hash | backend | `constants/aiRunFieldStatusConstants.cjs`. Four rows, ids 1–4. No ESM bridge yet |
 | the evidence-kind constant set | `AI_RUN_EVIDENCE_CATEGORY` | constant hash | backend | `constants/aiRunEvidenceCategoryConstants.cjs`. Three rows, ids 1–3. No ESM bridge yet |
