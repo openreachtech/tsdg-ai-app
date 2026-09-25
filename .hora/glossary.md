@@ -61,6 +61,21 @@ read from the package itself** under the backend row's `node_modules/`.
 | the active fixture client | `development-client` | seeded value | backend | `api_clients` id `10000001`. The one a local run signs with |
 | the rotating fixture client | `rotating-client` | seeded value | backend | id `10000002`. Carries both secrets, so a test can prove a rotation is not an outage |
 | the switched-off fixture client | `inactive-client` | seeded value | backend | id `10000003`. Signs correctly and is refused `403`, which is what tells that refusal apart from `401` |
+| the job engine | `AppJobEngine` | class | backend | `app/queue/`. One per process, not one per queue |
+| per-process job bag | `AppJobShare` | class | backend | `app/queue/contexts/`. Empty subclass — the seam |
+| per-job bag | `AppJobContext` | class | backend | `app/queue/contexts/`. Built fresh per execution |
+| the queue's Redis | `RedisConnection` | class | backend | `app/queue/`. Reads the three `REDIS_*` keys through the globals barrel |
+| the base run job's identity | `BaseAiRunJobManifest` | class | backend | `app/aiRun/jobs/`. Body schema `{ aiRunId }`; `jobName` stays abstract |
+| the base run job's producer | `BaseAiRunJobDispatcher` | class | backend | `app/aiRun/jobs/`. `attempts: 1` — no automatic retry |
+| the base run job's lifecycle | `BaseAiRunJobWorker` | class | backend | `app/aiRun/jobs/`. Owns queued to running to one terminal state, and the time limit |
+| the one member a service fills | `executeAiRunWork` | method | backend | the only abstract member of the base worker |
+| run job dispatch registration | `AiRunJobDispatchRegistrar` | class | backend | `app/aiRun/`. Hangs the enqueue off the transaction's commit |
+| a write that lost the race | `saveUnsettledAiRunValues` | method | backend | answers the affected-row count: 1 won, 0 lost |
+| the queue store address | `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD` | env keys | backend | declared in `.env.development` / `.env.live` |
+| the process's live dispatchers | `JobDispatcherProvider` | class | backend | `app/queue/`. One per dispatcher class per process, closed once at shutdown |
+| the service's own dispatcher | `JobDispatcherCtor` | static getter | backend | abstract on `BaseAiRunPostRenderer`, beside `aiRunCategory`. A service names its own |
+| the daemon's entry point | `scripts/startJobDaemon.js` | script | backend | `JobWorkersDaemon.createAsync({ EngineCtor })` — see [[Q87]] |
+| where concrete jobs live | `app/jobs/` | directory | backend | the daemon's `workersPath`; auto-discovered, no registration file |
 
 ## Names avoided, and why
 
@@ -79,3 +94,4 @@ read from the package itself** under the backend row's `node_modules/`.
 | `key` for a field identifier | the value is a dotted path, not a flat key, and the same word has to read the same on the way in and the way out | `path` |
 | `ctx`, `err`, `msg`, `num` | all on the denylist | `context`, `error`, `message`, `count` |
 | `cancelled`, `cancelling` | British spelling. The naming convention requires American always, and `no-restricted-syntax` enforces it by name — the most protected rule there is, so no per-file exception can buy it off. The spec, the contract and the code all carried the British form until lint caught it | `canceled`, `canceling` |
+| `generateConnectionOptions` kept over `buildConnectionOptions` | The verb table assigns `build~` to a temporary object, so `build~` is stricter. Kept anyway: the equipped job skill names that exact member and every ORT job repository's `RedisConnection` already carries it, so cross-repo recognizability won | `generateConnectionOptions` |

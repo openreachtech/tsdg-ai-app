@@ -2552,3 +2552,133 @@ stub driver to produce the failure.
 
       Nothing is owed here. Left open so that the feature which does call a model reads this rather
       than re-deriving it.
+
+
+## Q86 — Sequelize runs `afterCommit` hooks even when the COMMIT itself failed
+
+- category: upstream-defect
+- blocking: no
+- raised by: checkpoint 5 of `#run-execution`
+
+§11's first acceptance criterion is "the job for a run is dispatched only after the transaction that
+created the run has committed; a transaction that rolls back dispatches nothing". The dispatch is
+registered on `transaction.afterCommit()`, which is the only hook Sequelize offers for it.
+
+**Sequelize 6.37.8 runs those hooks from a `finally`**, after its `catch` has already decided to
+re-throw, and sets `this.finished = 'commit'` either way — verified in
+`node_modules/sequelize/lib/transaction.js`:
+
+```js
+} catch (e) {
+  await this.forceCleanup()
+  throw e
+} finally {
+  this.finished = "commit"
+  for (const hook of this._afterCommitHooks) {
+    await hook.apply(this, [this])
+  }
+}
+```
+
+So a transaction whose COMMIT **failed** still fires the hook, and the hook is given nothing that
+would let it tell that apart. The criterion's stated rollback clause is safe — `rollback()` never
+touches the hooks — so the exposed window is a failing COMMIT alone.
+
+- [ ] open
+      **Not worked around in our own code, deliberately.** A hook cannot distinguish the case, and
+      re-reading the row per dispatch would buy a query against a window this narrow.
+
+      **What covers it instead:** the worker loads its run by `aiRunId` and no-ops when the row is
+      absent. The job body is `{ aiRunId }` and nothing else, so that read already happens — the
+      mitigation costs nothing and is the same read the design already required.
+
+      **Removal condition:** drop this note if Sequelize moves the hook loop out of the `finally`,
+      or gives the hook a way to know the commit failed.
+
+## Q87 — the equipped job skill documents a surface the installed package does not have
+
+- category: upstream-defect
+- blocking: no
+- raised by: checkpoint 5 of `#run-execution`
+
+`hor-renchan-job-bullmq` (from `hora-skills-ort-renchan` 0.2.1), and therefore its digest, describe
+two things that do not exist in `@openreachtech/renchan-job-bullmq` **1.1.3**, which is the version
+installed and the version `npm view` reports as `latest`:
+
+- `BaseJobEngine.createAsync({ subscriptionBroker })` and a Share holding a `subscriptionBroker`.
+  Verified: the signature is `createAsync ({ config = this.config } = {})`, and the string
+  `subscriptionBroker` appears in **no file** under the package's `lib/`.
+- `RedisConnection#generatePubSubOptions()`, which has no consumer here and no subscriber to serve.
+
+The digest is not at fault — it summarized the skill faithfully. The skill is what diverges.
+
+- [ ] open
+      **Why it matters beyond this checkpoint:** checkpoint 7 builds the job daemon's entry point,
+      and a reader following the skill would take the boot path that passes a broker. That path does
+      not exist, so the daemon would not start. The path that does exist is
+      `JobWorkersDaemon.createAsync({ EngineCtor })`.
+
+      That is also the right path for this product on its own merits: nothing here subscribes,
+      because a run reports its outcome by callback (`#run-delivery`), not by publishing progress —
+      and progress is `#run-progress`, which this version withdrew.
+
+      **What is owed:** report the divergence to whoever maintains `hora-skills-ort-renchan`. Until
+      then, the installed package's own files are the authority for this feature, and both the
+      engine and the connection were written against them rather than against the skill.
+
+
+## Q88 — the job loader reads its workers directory without checking it exists
+
+- category: upstream-defect
+- blocking: no
+- raised by: checkpoint 7 of `#run-execution`
+
+`@openreachtech/renchan-job-bullmq` 1.1.3, `lib/tools/DeepBulkClassLoader.js#loadFileNames()`:
+
+```js
+return fs
+  .readdirSync(poolPath)
+  .filter(it => !it.startsWith('.'))
+```
+
+No guard. An engine whose `workersPath` does not exist yet kills the daemon at boot with `ENOENT`,
+where listening on nothing would be the truthful outcome — and "nothing yet" is the ordinary state
+of a service whose first job has not been written.
+
+- [ ] open
+      **Worked around in our own code, not by patching the package**: `app/jobs/.keepDirectory.js`
+      makes the directory exist. It is load-bearing rather than scaffolding, and it works because
+      the loader's own filter skips a name beginning with a dot, so the directory yields zero
+      workers rather than trying to import a file that is not one. The same idiom
+      `server/restfulapi/renderers/v1/get/` already uses.
+
+      **Removal condition:** when the loader answers an absent directory with an empty list. At that
+      point the keep-file stops being a workaround and becomes ordinary directory scaffolding —
+      which is also when `app/jobs/` will hold a real job anyway.
+
+## Q89 — the second acceptance criterion cannot be observed until a service supplies a job
+
+- category: spec-assumption
+- blocking: no
+- raised by: checkpoint 7 of `#run-execution`
+
+§11's second acceptance criterion is "a run accepted while no worker is running is executed once a
+worker starts". It is a property of a durable queue plus a daemon that boots and binds to it.
+
+Everything it needs is built: Redis is declared and running, the queue library is installed, the
+daemon boots and auto-discovers workers under `app/jobs/`, and the accept path enqueues after
+commit. **But `app/jobs/` holds no job**, because §11 says outright that the concrete job of a
+service belongs to that service — `#asset-media-extraction`, the seventh feature. So the daemon
+binds no queue, and there is nothing for an accepted run to be executed *by*.
+
+- [ ] open
+      **What this gate established is structural, not observable**, and the distinction is the whole
+      of this entry: the parts are present and wired, and no run has been carried across a restart
+      because no run can be carried at all yet.
+
+      **Not weakened and not worked around.** No test was written that would pass without proving
+      the criterion — the implementer named the gap instead, which is why it is recorded here.
+
+      **Where it becomes checkable:** `#asset-media-extraction`'s gate, and the whole-version sweep.
+      Worth reading at `#run-execution`'s own checkpoint 9 and at its acceptance gate, so neither
+      reads a pass there as evidence that a run survived a restart.
