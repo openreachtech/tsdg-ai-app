@@ -101,9 +101,49 @@ Constraint: a model call is never retried automatically (#scope, permanently out
       -- a field outcome reaches its step's reason code. Q65 and Q68 hold what was deferred.
       -->
 - [x] 4. Stub API  <!-- n/a: this feature adds no API operation at all. §10 carries no `### RESTful API` section, where §12, §13, §15 and §20 each do, and a paragraph added at its spec gate says a run is read back directly from the database this version. Checkpoint 3's verifier confirmed it from the other direction as well: all four routes `.hora/contracts/1.0.0/client-api.md` declares trace to other sections, and no contract shape needs a column this feature owed and did not build. There is nothing for a stub to stand in for, and nothing for a frontend to build against — this product declares no frontend row at all. -->
-- [ ] 5. The modules the implementation needs
-- [ ] 6. Actual API
-- [ ] 7. Worker
+- [x] 5. The modules the implementation needs  <!-- skills: hor-backend-testing, hoc-jest, hoc-errors, hor-sequelize-model, hor-sequelize-seeder, hoc-classes-principles, hoc-classes-constructor, hoc-classes-notations, hoc-methods, hoc-naming, hoc-jsdoc, hoc-accessors, hoc-scope; digests: hora-skills-ort-renchan 0.2.1, hora-skills-ort-core 0.4.0 -->  <!-- agents: 1 catalog search + 4 units + 1 fix + 1 verifier + 1 fix; wall-time: ~5400s -->
+      <!--
+      Built: AiRunStepRecorder, AiRunFieldOutcomeRecorder, AiRunTerminalStatusInspector +
+      AiRunStatusRecorder, three ESM constant bridges (closing Q65), and development seeders
+      for both new tables (closing half of Q68). The consumer that will import them is
+      #run-execution; checkpoint 6 is n/a, so this is where the six acceptance criteria of
+      section 10 are tested or nowhere.
+
+      **The catalog search ran once, first, as the rule requires**, and its most useful answer
+      was where it found nothing: a grep for state machine over all 33 catalogued packages
+      returned zero files. It checked and rejected two near-misses with quotes from their own
+      docs -- LatestStatusMixinModel is a history-table shape with no guard and no write path,
+      and mentsu-path-group-schema states it holds no database schema and never reads storage.
+      Only TimestampSeedsSupplier and ModelAttributeFactory were reused, both already in use.
+
+      **The checkpoint failed once, on the orchestrator's own briefs -- Q69.** Three units were
+      told different things about where their rows come from, and three of them wrote to a
+      table unique on (AiRunId, step_index). Each unit reported its allocation disjoint and
+      each was right about its own file; the first run of the folder together was the gather
+      step, and it failed on the spot. Fixed by the rule one unit had reached unprompted: an
+      order test creates the rows it stands on, in its own id block, and borrows none.
+      Order-independence was then demonstrated with a throwaway reversed barrel, not argued.
+
+      **The verifier wrote 14 mutations of its own and killed all 14**, each by exactly the
+      tests that should have caught it. It settled the question worth asking about criterion 4
+      -- whether a succeeded run records none is asserted or merely never exercised -- by
+      mutating a succeeded run to write a reason code, which turned 3 tests red. It also caught
+      its own error: a first round showing every test failing came from snapshotting the
+      database after an _orders run, not from the repository.
+
+      Two findings closed after it: a failed run could be recorded with no reason code and
+      nothing refused it -- the column is nullable, so unlike the step recorder there was no
+      NOT NULL to lean on and the guard had to live in the class; and the tree's only beforeAll
+      fixture hoist, against rules/testing.md and against its own two siblings from the same
+      pass. The new guard treats a whitespace-only reason code as absent, on the ground that
+      section 6 makes a reason code a lookup key rather than prose -- a key of blanks resolves
+      to no wording while reading as filled in.
+
+      1271 + 98 tests green, lint clean. Q69-Q75 record what this checkpoint turned up, of
+      which Q75 is the one that reaches past this feature.
+      -->
+- [x] 6. Actual API  <!-- n/a: this feature adds no API operation at all -- the same fact that made checkpoint 4 n/a, confirmed there three ways rather than inferred from silence. The exit condition's second half, that the unit tests covering this feature's acceptance criteria pass, is not waived by that: all six were written and run at checkpoint 5, which is where the modules they exercise live. This differs from #run-contract, where the same clause did NOT make 6 n/a, because that feature delivered the request path itself. -->
+- [x] 7. Worker  <!-- skills: hor-execution-placement-pattern; digests: hora-skills-ort-renchan 0.2.1 -->  <!-- n/a: decided with the placement skill rather than by eye, as the checkpoint requires. Its decision flow opens with Is it a write? -- and these modules are writes. But they sit in no request path, because this feature has none, and the thing that will call them is the worker #run-execution declares in section 11. This feature builds the recorders, not the thing that invokes them -- the same shape as #provider-layer's checkpoint 7, which built the driver and not its caller. The skill's own rule of thumb points the same way: it puts external I/O, AI calls, large record counts and file generation on the heavy side, and all three recorders are single-row inserts against the local database. Nothing this feature owns belongs outside a request path it does not have. -->
 - [ ] 8. Security audit
 - [ ] 9. Verify the use cases again, against the built API
 

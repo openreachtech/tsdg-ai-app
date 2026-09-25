@@ -2180,3 +2180,44 @@ It is latent, not broken.
       This is also the third instance of the same shape, after Q52 and Q69. The pattern is not a series of
       accidents: nothing in the test convention states that a `_orders` test owns the rows it stands on,
       so each feature rediscovers it.
+
+## Q75 · contradiction · blocking: no
+
+**Raised at** checkpoint 5's verification of #run-record, 2026-09-25. **Q70's contradiction has a
+consequence outside §10, and the consequence lands on a feature that has no table to fix it with.**
+<!-- spec: run-list -->
+
+Q70 records that §10 describes `ai_run_steps.finished_at` as *"NULL while it is running"* while making
+`outcome_code` `NOT NULL` in the same table — no implementation satisfies both, and the one taken writes
+the row once at close, so `finished_at` null means "cut short" rather than "in flight".
+
+**§13 (#run-list) depends on the half that cannot be satisfied.** It requires:
+
+> a run in progress reports which step it is on, and which reading of how many
+
+and declares *"No table of its own. Reads the run record and its steps."*
+
+Under one-write-at-close there is no row for the step a run is **currently** on — the newest row is the
+last step that *closed*. And **"which reading of how many" has no column anywhere in §10's model**:
+`agreed_reading_count` and `total_reading_count` sit on `ai_run_field_outcomes`, written once per field
+at settle time, and are not live counters.
+
+`.hora/contracts/1.0.0/client-api.md` inherits the same expectation — `AiRunsResponse` carries "the
+decomposed running state (`stepName`, `stepIndex`, `readingIndex`, `readingCount`, `progressRatio`)".
+**#run-progress (§14) is not affected**; its step indices ride on events rather than on these rows.
+
+- [ ] open — **this is `specs/` work and it belongs to /hora-spec stage 4**
+      The routing table names stage 4 for "a use case the data model cannot represent", which is exactly
+      this. Three shapes could close it, and choosing is the owner's:
+
+      1. **A row at open.** Seed a `running` outcome code, write the step when it starts and update it at
+         close. Costs an extra write per step and makes `outcome_code` mean two things.
+      2. **Live counters on `ai_runs`.** A current step name, index and reading pair maintained on the run
+         row itself — which is denormalization, and the database rule prefers rows to columns.
+      3. **Narrow §13.** A run in progress reports the last step that *completed*, and the reading pair is
+         dropped from the contract. Cheapest, and it changes what a client is promised.
+
+      **Raised now rather than at §13's gate**, because §13 arrives with nothing to read and its
+      checkpoint 1 would fail on a spec defect three features old. Nothing here is a defect in what
+      #run-record built — the verifier judged the implementer's reading the only self-consistent one and
+      passed the checkpoint on it.
