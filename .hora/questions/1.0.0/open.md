@@ -2523,3 +2523,32 @@ question underneath it is whether each recorder should carry its own.
       is checked at each writer or at the base model; this asks the same of a `BIGINT` key. Both
       answers point at the same place: a model layer that holds an attribute to its declared kind
       would cover every table at once, and would need no writer to remember.
+
+
+## Q85 — criterion 3 names a model call, and nothing calls a model at this gate
+
+- category: spec-assumption
+- blocking: no
+- raised by: checkpoint 1 of `#run-execution`
+
+§11's third acceptance criterion reads "a model call is never retried automatically: a run that
+fails on a provider error reports it rather than calling again". §11 also states that the concrete
+job of a service belongs to that service, and that job is `#asset-media-extraction`, the seventh
+feature. So at this gate there is a worker, a queue and a job body of `{ aiRunId }`, and nothing
+that calls a model.
+
+**The reading assumed, and approved by the owner:** the criterion is a statement about the queue's
+retry policy rather than about a model being called. A job runs once and is never retried
+automatically; a provider failure is recorded as `PROVIDER_CALL_FAILED`. Both halves are checkable
+here — fail a job, observe no second delivery, read the run's reason code — using `#provider-layer`'s
+stub driver to produce the failure.
+
+- [ ] open
+      **What this pass does not establish**, recorded so no later gate reads it as though it did:
+      that a model was ever called, that a real provider failure produces this code, or that the
+      driver reports one the way the criterion assumes. The first run in which a model call
+      actually happens is `#asset-media-extraction`'s, and that is where the criterion becomes
+      checkable in the sense its words suggest.
+
+      Nothing is owed here. Left open so that the feature which does call a model reads this rather
+      than re-deriving it.
