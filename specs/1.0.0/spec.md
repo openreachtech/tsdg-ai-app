@@ -547,7 +547,7 @@ are still changing status, and an offset page would skip or repeat rows as they 
 <!-- acceptance -->
 
 - the list returns only runs belonging to the calling client, whatever the request asks for
-- a run in progress reports which step it is on, and which reading of how many, rather than only that it is running
+- a run in progress reports the last step that completed, rather than only that it is running
 - one row carries the subject label, the run kind, the status, the elapsed time and the token spend
 - runs stalled beyond a given number of seconds are retrievable in one request
 - the subject label is returned exactly as the caller supplied it, never reinterpreted

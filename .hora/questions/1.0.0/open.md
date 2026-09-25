@@ -2206,7 +2206,29 @@ at settle time, and are not live counters.
 decomposed running state (`stepName`, `stepIndex`, `readingIndex`, `readingCount`, `progressRatio`)".
 **#run-progress (§14) is not affected**; its step indices ride on events rather than on these rows.
 
-- [ ] open — **this is `specs/` work and it belongs to /hora-spec stage 4**
+- [x] resolved 2026-09-25 — **§13 narrowed, and the contract brought into line with it**
+      The owner chose the third shape. §13's second criterion now reads "a run in progress reports the
+      last step that completed", and `AiRunsResponse` carries "the last completed step (`stepName`,
+      `stepIndex`)" in place of the five-field running state.
+
+      **This cuts a promise to the client rather than clarifying one, and is recorded as a cut.** What
+      goes is `readingIndex`, `readingCount` and `progressRatio` — so a caller can no longer show
+      "reading 2 of 3" or a progress bar, only the name of the last step that finished. If that is
+      asked for later, this is where it was given up.
+
+      §13's three use cases needed no change; none of them named the reading pair. `ai_model_calls.
+      reading_index` stays — it is a per-call column #provider-layer built for billing and
+      reproduction, not the live counter §13 wanted.
+
+      **The contract was pulled toward the spec, not away from it.** A contract change is ordinarily
+      `contractDrift` and a finding; here it is the deliberate consequence of a scope decision, made in
+      the same write as the criterion it follows.
+
+      **Q70 stays open.** The rejected alternative — a row written at step open — would have closed both
+      at once, because a step lost to a crash would then leave a row. Narrowing §13 buys nothing there,
+      so the crash-loses-the-step cost is unchanged and still recorded.
+
+- [x] the original framing, kept for the record
       The routing table names stage 4 for "a use case the data model cannot represent", which is exactly
       this. Three shapes could close it, and choosing is the owner's:
 
