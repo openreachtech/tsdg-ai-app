@@ -2356,3 +2356,73 @@ The seeded data is consistent — zero mismatches and zero orphans across all 12
       in — beside the guard that already refuses a blank failure reason.
 
       #run-execution is the first caller, so it is the first thing that could get it wrong.
+
+## Q79 · undefined-detail · blocking: no
+
+**Raised while closing Q76, 2026-09-25. Same class of defect as Q76, found in the same surface.**
+<!-- spec: run-record -->
+
+**The seeded record has a run's steps running two days after the run finished.** The run seeder
+(`20260923100004-000002-ai_runs.cjs`, #run-contract's) puts its instants on **2026-09-10**; the step
+seeder this feature added (`20260925110001-000004-ai_run_steps.cjs`) puts its `started_at` /
+`finished_at` on **2026-09-12**.
+
+So an operator reading run `10010004` sees it accepted, started and finished on the 10th, and its
+seven steps running on the 12th. Nothing in the schema forbids it and no criterion reads across the
+two files, so no test fails — but §10 says an operator reads these rows **directly on the machine**
+this version, and the record is therefore the only thing they have to learn what a real trace looks
+like.
+
+This is exactly why Q76 mattered: a fixture that shows an impossible state teaches that state.
+
+- [ ] open
+      **Cheap now, and it only gets more expensive.** The step seeder is this feature's own file and
+      the fix is to move its instants inside each run's own window — `accepted_at` < the steps <
+      `finished_at`. Twenty rows.
+
+      It was not fixed while Q76 was, because the unit that found it had been told to touch one file
+      and correctly did not reach into another's. Recorded rather than done quietly so the choice is
+      visible.
+
+## Q80 · contract-drift · blocking: no
+
+**Raised while closing Q77, 2026-09-25. Three things, and the first is the orchestrator's own error.**
+<!-- spec: run-record -->
+
+**1. The brief asserted a precedent that does not exist.** Q77's unit was told to copy
+`constants/aiRunRefusalConstants.cjs` and its bridge. **There is no such `.cjs` file.** The refusal
+constants are a single ESM file at `app/constants/aiRunRefusalConstants.js`, with no CommonJS half and
+no bridge. The unit found the repository's real two-file pattern by itself
+(`constants/aiRunStatusConstants.cjs` + its bridge) and gave the reason the shape matters: **a seeder
+can `require` a `.cjs`**, which the refusal file's shape cannot serve.
+
+This is the same failure as the `SHORT_COLUMN_NAME` map asserted earlier in this project and found not
+to exist — a brief stating a fact about the tree that the tree does not hold. The unit is what caught
+it both times.
+
+**2. Two more invented failure codes, in a file nobody was handed.**
+`tests/__tests__/app/aiRun/AiRunStatusRecorder.js` carries `'run.failure.model.unavailable'` and
+`'run.failure.medium.unreadable'` — the same dotted invention Q77 corrected in the `_orders` sibling,
+in the `__tests__` file of the same class. Checkpoint 9's finding named only `tests/_orders/`, so no
+unit's scope reached them.
+
+Two further strings, `'run.failure.10230072'` and `'run.failure.10230075'`, sit in the `_orders` file
+on status-transition refusal cases where the failure code is not what the case is about. They are
+id-derived fixtures rather than near-misses of the vocabulary, but a `#run-execution` author copying
+that file copies them too.
+
+**3. The honest drift guard cannot live in the backend, and the reasoning is worth keeping.** A test
+asserting that the constants file matches the contract has no precedent — **no test in this repository
+reads a `.hora/` file, and no constant hash here has a test at all.** Worse, `tsdg-ai-backend` is its
+own git repository and `.hora/contracts/` lives in the parent workspace, so such a test would reach
+outside its own repo and **fail on a lone checkout for an absent file rather than a wrong set** — a
+guard that cries for the wrong reason.
+
+- [ ] open
+      **The proposal, which I did not build:** the comparison belongs at the workspace root, where both
+      files are in reach — `/hora`'s own verification, diffing the contract's table against
+      `constants/aiRunFailureReasonConstants.cjs`. That is the only place the assertion is honest.
+
+      A presence test inside the backend (seven `toHaveProperty` cases) would pin the seven **twice in
+      one repository** and still not see the contract move. It catches a deleted or misspelled key and
+      nothing else, and it would be the first test any constant hash here has ever had.
