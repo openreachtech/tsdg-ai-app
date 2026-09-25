@@ -194,7 +194,47 @@ Constraint: a model call is never retried automatically (#scope, permanently out
       last commit was verified by six mutants, all killed, and by both suites and lint. Recorded
       here rather than passed over in silence.
       -->
-- [ ] 9. Verify the use cases again, against the built API
+- [x] 9. Verify the use cases again, against the built API  <!-- skills: none matched; digests: none taken -- an interactive checkpoint starts no agent -->  <!-- wall-time: ~900s -->
+      <!--
+      **There is no API to walk, and checkpoint 1 settled that rather than leaving it to be noticed
+      here.** Section 10 declares no `### RESTful API` section and says outright that an operator
+      reads these rows directly on the machine; the command that makes it ergonomic is
+      `#operator-cli` (10th) and the read-back is `#run-delivery` (6th). So the walk is a sequence
+      of reads against the real record, and what it had to establish is that each step of each use
+      case finds what the next step needs.
+
+      Walked against the development database, rebuilt from the seeders immediately before.
+
+      **Use case 1 -- the steps in the order they ran, each saying what it was and how long it took
+      -- walks on all five statuses, not only the two that succeeded.** Run 10010004 reads seven
+      steps and 10010003 six, both gapless from `step_index` 1 with `code` / `ai` / `human`
+      distinguished and a duration from the two instants. Run 10010001 is running and its third step
+      reads `in-progress` with `finished_at` null -- no duration, which is the truthful answer
+      rather than a missing one. Run 10010005 failed and its second step carries
+      `media-unreadable` beside the run's own `MEDIA_UNREADABLE`. Run 10010006 was canceled and the
+      gap between `cancel_requested_at` and `canceled_at` measures as 400 ms; 10010010's as
+      2700 ms, which is section 10's fifth criterion answered from the record. A queued run reads
+      zero steps, which is what happened to it.
+
+      **Use case 2 -- the agreement counts and the reason code, recorded against the step that
+      settled the field -- walks, and the join checkpoint 2 added is what carries it.** All three
+      `missing` fields reach a step through `AiRunStepId`, every one of those steps is
+      `settle-by-majority` carrying `majority-not-reached-for-some-fields`, and the counts on the
+      field row agree with the per-field counts the step repeats in `rejections` (1 of 3 and 2 of 5
+      on run 10010004). The two halves say the same thing, read from opposite ends.
+
+      **Then the condition both use cases exist for, which nothing else had walked: the content is
+      gone.** `#retention` is eleventh and unbuilt, so the purge was simulated exactly as it will
+      run -- the content columns nulled and `content_purged_at` stamped -- and both use cases were
+      re-asked. Both answer identically: the seven steps with their durations, the three fields with
+      their counts, their reason codes and the version of the formula that scored them, and nine
+      confidences still standing. That is the second clause of criterion 6 verified as behaviour
+      rather than as a schema property, which is as far as checkpoint 1 could take it.
+
+      No gap, so nothing was sent back. What this gate did **not** verify, and could not: that an
+      operator can run something. Section 10 says so itself, which is why a later reader cannot take
+      this pass for evidence of a tool.
+      -->
 
 ## Frontend gate
 - [x] 10. Open the frontend  <!-- n/a: target names no frontend row -->
