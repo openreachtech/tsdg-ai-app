@@ -2713,3 +2713,40 @@ rather than flagged as a defect.
       **What would close this:** nothing is owed. It is the shape of the framework, and a reviewer
       of `#asset-media-extraction` — the first feature to put a real file in that directory — is who
       this entry is written for.
+
+
+## Q91 — the spec defines the media allow-list and never says where it lives
+
+- category: undefined-detail
+- blocking: no
+- raised by: checkpoint 1 of `#media-fetch`
+
+§18's first acceptance criterion turns on it: "a file URL whose host is not on the allow-list is
+refused, and nothing is fetched". §5's glossary defines the term — "the set of hosts this service
+may fetch a file from. A URL on any other host is refused" — and §NFR repeats it: "Media arrives as
+a URL this service fetches from an allow-listed host".
+
+**Nothing says where the set of hosts is held.** §23's key file map is an empty table, no section
+names a configuration file or an environment key for it, and §18 declares its three tables —
+`ai_run_media_categories`, `ai_run_media`, `provider_uploaded_files` — with no allow-list among
+them.
+
+- [ ] open
+      **The reading taken, and why:** an environment key, read through `app/globals/_.js` like every
+      other deployment fact this service holds.
+
+      The strongest evidence is the omission itself. §18 lists its tables exhaustively; a feature
+      whose data model is stated that completely would have declared a fourth table if the
+      allow-list were one. And the value cannot be a constant in code, because development fetches
+      from a local or fake host and live fetches from the client's own storage — a deployment fact
+      by definition. Adding a host is then a deployment change rather than a migration, which is
+      also the cheaper of the two for a set that will change when the client moves storage and
+      almost never otherwise.
+
+      **What the reading gives up:** an allow-list in a table could be per client, could carry a
+      reason and a date, and would be readable by an operator without a deployment. Nothing in
+      §18 asks for any of that, and the criterion is written about "the allow-list", singular and
+      service-wide.
+
+      **Worth settling in the spec** — this is a durable design fact that a later reader will want
+      stated rather than inferred from an absence.
