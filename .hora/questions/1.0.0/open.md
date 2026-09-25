@@ -2062,6 +2062,14 @@ It was resolved in favor of the `NOT NULL`: the recorder writes one row when the
       The development seeder already carries an `in-progress` outcome code on one row, invented to seed
       a running step. That value exists in data and in no specification.
 
+      **Update 2026-09-25 — one notch worse than written.** Checkpoint 9 found that the seeded running
+      step (`10240018`, run `10010001`, `finished_at` null, `outcome_code` `in-progress`) is **a row
+      shape `AiRunStepRecorder` cannot write at all**. The class writes once at close with a derived
+      outcome, and its own documentation says a null `finished_at` means *cut short*, not *in flight*.
+      So the fixture does not merely use an unspecified value — it depicts a lifecycle the application
+      does not implement. Since §10 says an operator reads these rows directly this version, anyone
+      reading the seeded record to learn what a running run looks like learns something untrue.
+
 ## Q71 · undefined-detail · blocking: no
 
 **Raised at** checkpoint 5 of #run-record, 2026-09-25. **A vocabulary now exists in data and nowhere
@@ -2085,6 +2093,19 @@ The development seeder had to invent the first set to seed a plausible trace:
 The status recorder's tests independently invented `media_unreachable` and `run_time_limit_reached` —
 **in snake_case, where the seeder used kebab-case.** That divergence appeared inside one checkpoint,
 between two units of the same feature, which is the clearest possible evidence that nothing pins it.
+
+**Update 2026-09-25 — the list was too short, in two directions.**
+
+**Two more free-string columns belong here**, found by checkpoint 8's audit: `ai_run_field_outcomes.
+field_path` (STRING(191)) and `confidence_method_version` (STRING(32)). The difference matters. The
+three columns above risk a **vocabulary drift** — kebab against snake case. `field_path` risks
+**privacy**: the audit wrote raw medium text into it and the row stored it, and this feature's own
+seeder carries `reasonCode: 'field-path-outside-schema'`, which says a path can be produced by the
+model rather than bounded by a schema. It is the widest channel by which content reaches a 730-day
+table. That half is being closed as a security finding, not left to a vocabulary decision.
+
+**And one column that looked like it belonged here does not:** `ai_runs.failure_reason_code` has a
+vocabulary already, fixed in the contract. See Q77.
 
 - [ ] open
       **Whoever builds #run-execution decides this**, and will either adopt what is seeded or contradict
@@ -2243,3 +2264,95 @@ decomposed running state (`stepName`, `stepIndex`, `readingIndex`, `readingCount
       checkpoint 1 would fail on a spec defect three features old. Nothing here is a defect in what
       #run-record built — the verifier judged the implementer's reading the only self-consistent one and
       passed the checkpoint on it.
+
+## Q76 · undefined-detail · blocking: no
+
+**Raised at** checkpoint 9 of #run-record, 2026-09-25. **The seeded record shows four rows in states
+this feature's own writers refuse to produce.**
+<!-- spec: run-record -->
+
+§10 says an operator reads these rows **directly on the machine** this version, so the seeded
+development record is the whole of the surface an operator has. On that surface, verified by query
+across all ten seeded runs:
+
+- both `failed` runs (`10010005`, `10010009`) carry `failure_reason_code = NULL` — the exact state
+  `saveFailedAiRun()` now refuses to write;
+- both `canceled` runs (`10010006`, `10010010`) carry `cancel_requested_at = NULL` **and**
+  `canceled_at = NULL` — a state `saveCanceledAiRun()` cannot produce, since it always writes the
+  second.
+
+So an operator walking the seeded canceled run can measure no gap at all, which is precisely what
+acceptance criterion 5 promises is measurable.
+
+- [ ] open
+      The rows live in `#run-contract`'s `sequelize/seeders/development/20260923100004-000002-ai_runs.cjs`,
+      which predates this feature and whose own criteria never mentioned these columns. **But criteria
+      4 and 5 are this feature's**, and this feature seeded a failed, a canceled and a running trace
+      into `ai_run_steps` without filling in the run rows those traces hang off.
+
+      **The mitigation, not a fix:** the failed run's step does carry `reason_code: 'media-unreadable'`,
+      so the trace answers *why* even where the run row does not.
+
+      Four values would close it, with the two cancellation instants differing by a measurable gap on
+      at least one run.
+
+## Q77 · contract-drift · blocking: no
+
+**Raised at** checkpoint 9 of #run-record, 2026-09-25. **A vocabulary the contract already fixes, and
+four near-misses of it written as the only worked examples.**
+<!-- spec: run-record -->
+
+`.hora/contracts/1.0.0/client-api.md` fixes a **closed set of seven** codes for `failure.reasonCode`,
+which is `ai_runs.failure_reason_code` rendered: `MEDIA_FETCH_FAILED`, `MEDIA_LIMIT_EXCEEDED`,
+`MEDIA_UNSUPPORTED`, `MEDIA_UNREADABLE`, `PROVIDER_CALL_FAILED`, `OUTPUT_INVALID`,
+`TIME_LIMIT_EXCEEDED`.
+
+This feature's tests write four literals into that column that are near-misses of that set, in the
+wrong case:
+
+| written | the contract's |
+|---|---|
+| `media_unreachable` (x3) | `MEDIA_FETCH_FAILED` |
+| `run_time_limit_reached` (x2) | `TIME_LIMIT_EXCEEDED` |
+| `media_unreadable` | `MEDIA_UNREADABLE` |
+| `media_too_large` | `MEDIA_LIMIT_EXCEEDED` |
+
+**Nothing shipped drifts** — no production code writes a failure code yet. It matters because these
+are the only worked examples #run-execution will copy, and `saveFailedAiRun()` accepts any non-blank
+string, so nothing catches the divergence.
+
+**This is not Q71.** Q71 covers three columns on `ai_run_steps` with no master and no contract entry.
+`ai_runs.failure_reason_code` is the one column of the set whose vocabulary **is** already fixed, in
+the contract — so it needs pinning in code, not deciding.
+
+- [ ] open
+      The repository already has the pattern: `app/constants/aiRunRefusalConstants.js`, from
+      #run-contract, pins the refusal statuses the same contract declares. There is no equivalent for
+      the failure reason codes, and a constants file plus corrected literals would close it.
+
+## Q78 · undefined-detail · blocking: no
+
+**Raised at** checkpoint 9 of #run-record, 2026-09-25. **The link this feature exists to add can point
+at another run's step, and nothing notices.**
+<!-- spec: run-record -->
+
+Confirmed by execution, not by reading: a field outcome was written with `aiRunId` of one run and
+`aiRunStepId` of a step belonging to a **different** run, and the row was accepted. There is no
+database foreign key — correct, per the ORT rule that integrity is enforced in application code — no
+application check, and no test.
+
+`AiRunStepId` was added at this feature's checkpoint 2 for one reason: §10's second use case reads a
+field's reason code off the step that settled it. **A mis-wired caller produces a field outcome whose
+"the step that settled it" belongs to another run**, and the operator reads someone else's reason code
+for their missing field, silently, with no way to tell.
+
+The seeded data is consistent — zero mismatches and zero orphans across all 12 outcomes and 20 steps
+— so nothing is wrong today.
+
+- [ ] open
+      Not an acceptance criterion, so it did not make checkpoint 9 unmet. But it is the one hole in the
+      very link this feature was extended to provide, and the cheapest place to close it is in
+      `AiRunFieldOutcomeRecorder` — read the step and refuse when its `AiRunId` is not the one handed
+      in — beside the guard that already refuses a blank failure reason.
+
+      #run-execution is the first caller, so it is the first thing that could get it wrong.
