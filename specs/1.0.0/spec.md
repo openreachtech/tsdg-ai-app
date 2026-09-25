@@ -357,7 +357,7 @@ Same shape as the other masters. Seeds code, ai, human.
 | `step_name` | string | NOT NULL | which step this was |
 | `AiRunStepCategoryId` | int | NOT NULL | code, ai or human |
 | `outcome_code` | string | NOT NULL | how the step ended |
-| `rejected_items` | json | NULL | what this step dropped, and why: the field path, the reason code, and figures such as a length or an agreement count. **Never the value itself** — the trace outlives the content, and a value kept here would survive the purge meant to remove it |
+| `rejections` | json | NULL | what this step dropped, and why: the field path, the reason code, and figures such as a length or an agreement count. **Never the value itself** — the trace outlives the content, and a value kept here would survive the purge meant to remove it |
 | `reason_code` | string | NULL | the step's own reason, where it has one |
 | `started_at` | datetime(3) | NOT NULL | UTC |
 | `finished_at` | datetime(3) | NULL while it is running | |

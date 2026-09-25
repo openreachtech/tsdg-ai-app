@@ -38,6 +38,11 @@ read from the package itself** under the backend row's `node_modules/`.
 | reason code | `reasonCode` | field | backend, the contract | a code plus `parameters`. Never display wording |
 | content | `requestBody` / `resultBody` / `responseBody` | fields | backend | the short retention clock |
 | decision trace | — | concept | backend | the step, field-outcome and model-call rows. The long clock |
+| what a step dropped | `rejections` | field | backend | column on `ai_run_steps`. The field path, the reason code and figures — **never a value read out of a medium**. See below for the name |
+| the three evidence kinds | `visible-text`, `visual-estimate`, `category-prior` | master row values | backend | the seeded `name` of each `ai_run_evidence_categories` row, taken from §6's terminology table |
+| the step-category constant set | `AI_RUN_STEP_CATEGORY` | constant hash | backend | `constants/aiRunStepCategoryConstants.cjs`. Three rows, ids 1–3. **No ESM bridge yet** — see Q65 |
+| the field-state constant set | `AI_RUN_FIELD_STATUS` | constant hash | backend | `constants/aiRunFieldStatusConstants.cjs`. Four rows, ids 1–4. No ESM bridge yet |
+| the evidence-kind constant set | `AI_RUN_EVIDENCE_CATEGORY` | constant hash | backend | `constants/aiRunEvidenceCategoryConstants.cjs`. Three rows, ids 1–3. No ESM bridge yet |
 | shared model ancestor | `BaseAppRenchanModel` | class | backend | `sequelize/baseModel/`. Every model extends it; none extends the framework's `RenchanModel` directly, so shared behavior has one home |
 | the asset-media-extraction service | `asset-media-extraction` | master row value | backend, the contract | the `name` of the one seeded run category. It is what the API returns as `runCategoryName`, and it matches the feature id, the route and the queue |
 | the run-status constant set | `AI_RUN_STATUS` | constant hash | backend | `constants/aiRunStatusConstants.cjs`, with an ESM bridge beside it. Five rows, ids 1–5 |
@@ -60,6 +65,8 @@ read from the package itself** under the backend row's `node_modules/`.
 | `runInfo`, `mediaInfo` | `info` is on the denylist, and adds nothing `run` does not already say | `AiRun`, `AiRunMedia` |
 | `stepData`, `resultData` | `data` is on the denylist and explains nothing to a reader | `AiRunStep`, `resultBody` |
 | `fieldItem` | `item` is on the denylist; the element of `fields` needs no word for being one | the element of `fields` |
+| `rejectedItems`, `rejected_items` | `item` is on the denylist and forbidden as a suffix. **The spec named the column this and was corrected**, so the schema and §10 now agree | `rejections` |
+| `visible-evidence` | considered, and not taken: §6's terminology table — where the spec *defines* the term — reads "visible text", and two of the three sources agree on the narrow reading. §10's looser "something visible in the medium" is the outlier. See Q66 | `visible-text` |
 | `AiRunKind`, `ai_run_kinds` | the database convention names a classification set `*_categories` and a status set `*_statuses`, and `kinds` is neither. The annex used it throughout | `AiRunCategory`, `ai_run_categories` |
 | `AiRunType`, `mediaType` | `type` is forbidden as a suffix — it collides with the JSDoc annotation | `AiRunCategory`, `AiRunMediaCategory` |
 | `mimeType` | **kept as it is.** The one sanctioned exception: a word borrowed verbatim from an external standard | `mimeType` |

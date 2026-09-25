@@ -1882,3 +1882,119 @@ invisible in a diff viewer and would have sat in the history.
       `.hora/spec/1.0.0/_assets.md`. All predate this session. Normalizing them would widen a
       line-ending repair into files this work never touched; they are named here so the next person
       to add a `.gitattributes` knows what is already there.
+
+## Q65 · undefined-detail · blocking: no
+
+**Raised at** checkpoint 3 of #run-record, 2026-09-25.
+<!-- spec: run-record -->
+
+**The three new constant hashes have no ESM bridge, and the repository is already inconsistent about
+whether they need one.** `hor-constant-definition` states that every constant is two files — the
+`constants/<name>.cjs` master and an `app/constants/<name>.js` bridge that re-exports it through the
+custom `require`.
+
+`AI_RUN_STEP_CATEGORY`, `AI_RUN_FIELD_STATUS` and `AI_RUN_EVIDENCE_CATEGORY` were written as `.cjs`
+only, because the unit's file list named only those. The repository does not settle the question
+either way: `aiRunStatusConstants` and `aiRunCategoryConstants` have bridges, `aiProviderConstants`,
+`aiModelConstants` and `aiAgentConstants` do not.
+
+- [ ] open, and deliberately deferred to checkpoint 5
+      **Nothing needs a bridge yet** — no application code binds to these ids at checkpoint 3, and the
+      seeders `require` the `.cjs` directly. The first consumer is the step writer and the outcome
+      writer, both of which arrive at checkpoint 5, and that is the run that will know which of the
+      three it actually imports.
+
+      Writing three bridges nothing imports would be three files to keep in step for no reader. The
+      risk of waiting is the opposite one: a checkpoint-5 unit reaches for
+      `AI_RUN_STEP_CATEGORY.CODE.ID` from ESM, finds no bridge, and writes a fourth pattern rather
+      than the convention. Named here so that does not happen quietly.
+
+## Q66 · undefined-detail · blocking: no
+
+**Raised at** checkpoint 3 of #run-record, 2026-09-25. **Settled, and recorded because the rows are
+now seeded and the cost of reversing rises from here.**
+<!-- spec: run-record -->
+
+**§6 and §10 describe the first evidence kind differently, and the seeded key follows §6.**
+
+| | |
+|---|---|
+| §6, the terminology table | "what a reading was based on — **visible text**, a visual estimate, or a category prior" |
+| §10, the master's one-line description | "**something visible in the medium**, an estimate made from it, and a prior drawn from the category the subject belongs to" |
+
+The first is narrow — text that can be read. The second is broad — anything visible at all, a paint
+color or a dent included. The seeded names are `visible-text`, `visual-estimate`, `category-prior`.
+
+- [x] settled — the narrow reading, on §6's authority
+      **§6 is where the spec defines its terms**, so it outranks a one-line table description
+      elsewhere; and the annex's own confidence table uses `visible_text` and scores it at 1.00, so
+      two of the three sources agree. The spelling is kebab-case rather than the annex's snake_case
+      because this repository's existing multi-word master key is kebab (`asset-media-extraction`),
+      and the annex is interpretation material rather than a declared Source.
+
+      **What this forecloses, stated plainly.** If the intent was the broad reading — a model
+      allowed to rest a reading on a dent or a paint color rather than on text — then `visible-text`
+      is the wrong name and will be wrong permanently, because it becomes the value every
+      `ai_run_field_outcomes` row carries and every confidence weight keys on. Reversing it today is
+      a constant and a seeder; reversing it after #asset-media-extraction runs is a migration over
+      live rows.
+
+      §10's looser sentence was **not** edited to match, because its exact replacement wording was
+      never put up for approval and nothing may enter `specs/` unread. The disagreement is recorded
+      here instead, so whoever next edits §10 knows which of the two the code followed.
+
+## Q67 · undefined-detail · blocking: no
+
+**Raised at** checkpoint 3 of #run-record, 2026-09-25. **The checkpoint's verifier failed the gate on
+this and it was fixed; what stays open is the precedent it sets.**
+<!-- spec: run-record -->
+
+**`suggestion_confidence` is the repository's first and only DECIMAL column**, and Sequelize returns a
+DECIMAL differently per dialect: a **string** on MySQL and MariaDB — `staging` and `live` — and a
+**number** on SQLite, which is what `development` runs and therefore what every Jest run sees.
+
+The declaration first read `suggestionConfidence: string | null`. Verified by execution against the
+real models: writing `0.8125` and reading it back under `development` yields `typeof number`. So the
+declaration was true of production only, and a test written from it — `expect(…).toBe('0.8125')` —
+would fail locally while looking correct.
+
+- [x] fixed as the union, with the reasoning carried in the file
+      `string | number | null` is provably true in every dialect this project configures, needs no
+      behavior change and cannot introduce a defect. The `.d.ts` carries a comment saying why, and
+      saying not to narrow it — because the half that is wrong would be wrong only in the environment
+      nobody tests in.
+
+- [ ] open — **whether to normalize instead, when a consumer exists**
+      The alternative is a reading normalizer on the model so every consumer sees `number`, and the
+      declaration states that. It is the better shape for readers, and it is the one this repository
+      will want if more decimal columns arrive.
+
+      **Not done now, deliberately.** It changes read behavior, and nothing consumes the column yet —
+      `AssetFieldConfidenceScorer` is #asset-media-extraction's, seventh in the order. A normalizer
+      written before its first reader is a behavior change verified by nothing. Decide it when that
+      scorer lands; whatever is chosen becomes the pattern for every later decimal.
+
+## Q68 · undefined-detail · blocking: no
+
+**Raised at** checkpoint 3 of #run-record, 2026-09-25. **Two things this checkpoint correctly did not
+owe, recorded so the checkpoint that does owe them is not surprised.**
+<!-- spec: run-record -->
+
+**1. No development seeder for `ai_run_steps` or `ai_run_field_outcomes`.** `development/` holds
+fixtures for `api_clients`, `ai_runs` and the agent prompt suite, and nothing for the two new
+transactional tables. Checkpoint 3's exit condition names no development seeder and no test exists
+yet, so this is not a shortfall here.
+
+But the testing rule forbids mocking DB rows — *"if data is missing, add a seeder"* — so checkpoints
+6, 9 and 18 all need them. `.hora/id-bank.json` already reserves prefix `102` for this feature, and
+the masters are exempt from it, so the fixture ids are `102`-prefixed and free.
+
+**2. The purge job will filter these two tables with no index to do it on.** §19's "purge expired run
+traces" runs on the long clock and selects by date, and neither table has an index on `settled_at`,
+`started_at` or `created_at`.
+
+- [ ] open, both belonging to a later feature
+      The seeders belong to whichever checkpoint first needs a row it cannot create itself — most
+      likely 5 or 6 of this feature. The index belongs to #retention, eleventh, which can add it in a
+      migration of its own; noted so it is designed rather than rediscovered when a purge over two
+      years of trace rows turns out to be a table scan.

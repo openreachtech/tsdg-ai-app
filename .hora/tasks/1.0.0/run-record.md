@@ -1,5 +1,5 @@
 # #run-record  The run record and its decision trace
-<!-- spec: run-record @ sha256:571aa0cfae0fa239e7dc78a94b5794f0c7bf3b1732ab56f1875dfb228b3061a6 -->
+<!-- spec: run-record @ sha256:2b2e3f30dfee08896044a00f7761d362e67eca380740c3d7a128a592580c58b5 -->
 <!-- repositories: backend -->
 
 Constraint: progress events are out of scope for now (#scope). The seam promised for them
@@ -69,8 +69,38 @@ Constraint: a model call is never retried automatically (#scope, permanently out
       -->
 
 ## Backend gate
-- [ ] 3. DB and API schemas
-- [ ] 4. Stub API
+- [x] 3. DB and API schemas  <!-- skills: hor-database-design, hor-sequelize-migration, hor-sequelize-model, hor-sequelize-seeder, hor-type-interface, hor-constant-definition, hoc-naming, hoc-jsdoc, hoc-classes-principles, hoc-classes-notations, hoc-methods, hoc-accessors; digests: hora-skills-ort-renchan 0.2.1, hora-skills-ort-core 0.4.0 -->  <!-- agents: 3 units + 1 verifier; wall-time: ~2700s -->
+      <!--
+      Five tables: three masters (`ai_run_step_categories`, `ai_run_field_statuses`,
+      `ai_run_evidence_categories`), and the two transactional ones (`ai_run_steps`,
+      `ai_run_field_outcomes`). Migrations 000017-000021, master seeders 000007-000009.
+
+      **The API half is not applicable, and the verifier confirmed it three separate ways**
+      rather than taking §10's silence for it: §10 carries no `### RESTful API` while §12, §13,
+      §15 and §20 each do; §10 says outright that a run is read back from the database this
+      version; and all four routes the contract declares trace to other sections. It also
+      checked the other direction — that no contract shape needs a column this feature owed and
+      did not build.
+
+      **The gate failed once.** `types/models/AiRunFieldOutcome.d.ts` declared
+      `suggestionConfidence: string | null`, which is true of MariaDB and false of the SQLite
+      every Jest run uses — established by writing a row and reading it back, not by reading
+      the source. Corrected to `string | number | null`. This is the repo's first DECIMAL
+      column, so it sets the precedent; Q67 holds the open half, whether to normalize instead
+      once a consumer exists.
+
+      **Two spec edits came out of the build, both approved before they were written.**
+      `rejected_items` became `rejections`, because `item` is on the eslint `id-denylist` and is
+      forbidden as a suffix — verified in the package itself, and the glossary had already
+      recorded the same call once for `fieldItem`. The three evidence keys follow §6's
+      terminology table rather than §10's looser sentence; Q66 records what that forecloses.
+
+      Checked and found correct, by execution: every model matches its migration attribute for
+      attribute, both composite uniques actually raise, `AiRunStepId` NOT NULL actually refuses
+      a null, no DB-level FK constraint exists on any of the five, and use case 2 walks for real
+      -- a field outcome reaches its step's reason code. Q65 and Q68 hold what was deferred.
+      -->
+- [x] 4. Stub API  <!-- n/a: this feature adds no API operation at all. §10 carries no `### RESTful API` section, where §12, §13, §15 and §20 each do, and a paragraph added at its spec gate says a run is read back directly from the database this version. Checkpoint 3's verifier confirmed it from the other direction as well: all four routes `.hora/contracts/1.0.0/client-api.md` declares trace to other sections, and no contract shape needs a column this feature owed and did not build. There is nothing for a stub to stand in for, and nothing for a frontend to build against — this product declares no frontend row at all. -->
 - [ ] 5. The modules the implementation needs
 - [ ] 6. Actual API
 - [ ] 7. Worker
