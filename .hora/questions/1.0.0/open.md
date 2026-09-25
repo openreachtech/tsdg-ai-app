@@ -1691,6 +1691,17 @@ the run's, not the call's — `ai_run_steps.outcome_code` (#run-record) plus the
       from a call to its step, or that convention written into §10 where both features will read it.
       Recorded here rather than left implied, because the decision above is what made it necessary.
 
+      **Update 2026-09-25 — a precedent now exists, from #run-record's checkpoint 2.** The identical
+      shape turned up inside §10: `ai_run_field_outcomes` held the agreement counts while
+      `ai_run_steps` held the reason code, with nothing joining a field to its step, and the second
+      use case could not be walked. It was settled by adding a real key — `AiRunStepId`, NOT NULL,
+      indexed — rather than by a matching convention.
+
+      **That is the answer this question should be read against.** Whoever builds #run-execution
+      should add `AiRunStepId` to `ai_model_calls` on the same grounds, while 1.0.0 is unreleased
+      and the column is free; matching `action_name` against `step_name` was never written down
+      anywhere and would be the second convention nobody records.
+
 ## Q58 · undefined-detail · blocking: no
 
 **Raised at** checkpoint 9 of #provider-layer, 2026-09-24. **Two candidate settings decide which
@@ -1840,3 +1851,34 @@ same gap.
       `cancelled` / `canceled` fix and no checkpoint was cleared either. The rule being applied is
       the reconciliation table's last row: wording, with no change to a table, an operation or a use
       case, records the new digest and moves on.
+
+## Q64 · tooling · blocking: no
+
+**Raised at** #run-record's spec gate, 2026-09-25. **Self-inflicted, fixed, and worth recording
+because the mechanism is silent.**
+<!-- spec: none -->
+
+**Three `.hora/` files were committed with CRLF line endings into a repository configured for LF**
+(`core.autocrlf = false`, `core.eol = lf`, no `.gitattributes`, so git stores exactly what the
+working tree holds). The files were `.hora/questions/1.0.0/open.md`,
+`.hora/tasks/1.0.0/_plan.md` and `.hora/tasks/1.0.0/provider-layer.md`.
+
+**The cause:** Python's `pathlib.Path.write_text()` translates `\n` to `\r\n` on Windows unless the
+handle is opened with `newline=''`. Every edit script in this session that used the convenience form
+rewrote its whole file, not just the lines it changed.
+
+**How it surfaced, and why that matters.** Not by review — by the spec digest. Editing `specs/` with
+the same convenience form turned the whole document CRLF, and the reconciliation that compares every
+feature's recorded digest reported **10 of 11 features drifted at once**. A single edit cannot move
+ten sections, so the count itself was the tell. Without that check the change would have been
+invisible in a diff viewer and would have sat in the history.
+
+- [x] fixed
+      The three files are normalized and the correcting commit carries only line endings. Every
+      edit script now opens with `newline=''`.
+
+      **Three other tracked files hold CRLF and were deliberately left alone** — the annex HTML
+      added 2026-09-22, `.hora/digests/hoc-methods.md` written at #run-contract's backend gate, and
+      `.hora/spec/1.0.0/_assets.md`. All predate this session. Normalizing them would widen a
+      line-ending repair into files this work never touched; they are named here so the next person
+      to add a `.gitattributes` knows what is already there.
