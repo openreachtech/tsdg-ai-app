@@ -2682,3 +2682,34 @@ binds no queue, and there is nothing for an accepted run to be executed *by*.
       **Where it becomes checkable:** `#asset-media-extraction`'s gate, and the whole-version sweep.
       Worth reading at `#run-execution`'s own checkpoint 9 and at its acceptance gate, so neither
       reads a pass there as evidence that a run survived a restart.
+
+
+## Q90 — the job daemon executes any `.js` that lands under its workers path
+
+- category: undefined-detail
+- blocking: no
+- raised by: checkpoint 8 of `#run-execution`
+
+`scripts/startJobDaemon.js` boots `JobWorkersDaemon`, which walks `app/jobs/` recursively and
+`import()`s every `.js` / `.cjs` / `.mjs` whose name does not begin with a dot. A top-level side
+effect in such a file runs at boot with the daemon's full authority, and any default export that is
+a `BaseJobWorker` subclass is bound to a queue **with no registration step anywhere**.
+
+This is the framework's own design and the directory is repository-controlled, so it is recorded
+rather than flagged as a defect.
+
+- [ ] open
+      **Why it is written down at all:** the daemon script's docblock presents the absence of a
+      registration step purely as a convenience — "a service that adds a job directory under that
+      path is picked up with no file edited here". The other half is that the path is the only thing
+      standing between a file and being executed. Both halves are now in that docblock.
+
+      **The adjacent fact worth keeping beside it:** `app/jobs/.keepDirectory.js` exports
+      `Object`, and is skipped only because the loader filters names beginning with a dot ([[Q88]]).
+      If that filter ever changes, the global `Object` constructor would be offered to the daemon as
+      a candidate worker class. Harmless while the filter stands, and the two are worth reading
+      together.
+
+      **What would close this:** nothing is owed. It is the shape of the framework, and a reviewer
+      of `#asset-media-extraction` — the first feature to put a real file in that directory — is who
+      this entry is written for.
