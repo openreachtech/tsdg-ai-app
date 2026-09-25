@@ -326,3 +326,24 @@ boundary, and "the AI proposes and never decides". What waits for milestone 2 is
 cancellation, and the logging criterion — which spans eight features including `#operator-cli`
 and `#retention`, so it could not land earlier without reordering those two into milestone 1.
 
+
+
+## Stage 4 re-entry — 2026-09-25, from #run-record's checkpoint 2
+
+**Scope: one table.** `ai_run_field_outcomes` only, reading the rest of the model as context —
+this version adds no repository, no server and no endpoint here, so steps 1 and 2 carried over.
+
+**What sent it back.** §10's second use case reads the agreement counts and the reason code
+"recorded against the step that settled it". The counts are on `ai_run_field_outcomes`; the
+reason code is on `ai_run_steps`; nothing joined a field to its step. That is the routing
+table's "a use case the data model cannot represent", which names stage 4.
+
+**Decided in conversation.** `AiRunStepId`, bigint, **NOT NULL**, indexed. NULL was approved
+first and then withdrawn: it left the hole open in precisely the rows the use case asks about,
+since a field that came out `missing` is the one whose reason code has to be reachable. NOT NULL
+asserts that no field outcome exists outside a step — accepted with that consequence stated.
+
+**Step 6 re-walked.** Both use cases now complete: run -> steps by `step_index`; field -> its
+outcome -> its step -> that step's `reason_code`. No other gap found.
+
+**Not decided here.** The migration, the index name and the model attribute are checkpoint 3's.

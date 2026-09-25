@@ -380,6 +380,7 @@ category the subject belongs to.
 |---|---|---|---|
 | `id` | bigint | PK | |
 | `AiRunId` | bigint | NOT NULL, indexed | |
+| `AiRunStepId` | bigint | NOT NULL, indexed | the step that settled this field, so its reason code is reachable from the field |
 | `field_path` | string | NOT NULL, unique with `AiRunId` | which field was settled |
 | `AiRunFieldStatusId` | int | NOT NULL | what the field came out as |
 | `AiRunEvidenceCategoryId` | int | NULL when nothing was settled | what the majority reading rested on |
@@ -396,8 +397,18 @@ holds a value read out of a medium. Without it the retention promise could not b
 the scores lived only in the result body, which is purged at thirty days, and no column
 held the formula's version at all.
 
+The step link is what makes the second use case answerable: the agreement counts live here, the
+reason code lives on the step, and without it a field could not be traced to the step that
+decided it.
+
 Recalibrating the formula later reads two years of these rows, which is what makes the
 deferred calibration target reachable rather than a wish.
+
+There is no operation for reading a run back this version. An operator reads these rows
+directly on the machine, exactly as a prompt is edited (`#provider-layer`). The command that
+makes it ergonomic is `#operator-cli` and the API read-back is `#run-delivery`, both of which
+come later — so the use cases below are met by what this record holds, not by a surface this
+feature ships.
 
 ### Use cases
 <!-- usecases -->
