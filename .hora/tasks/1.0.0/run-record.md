@@ -247,4 +247,21 @@ Constraint: a model call is never retried automatically (#scope, permanently out
 - [x] 17. Local test environment  <!-- n/a: target names no frontend row -->
 
 ## Acceptance gate
-- [ ] 18. Acceptance (E2E and unit both)
+- [x] 18. Acceptance (E2E and unit both)  <!-- skills: hor-backend-testing, hoc-jest, hoc-test-execution; hoc-test-cache had nothing to configure; digests: hora-skills-ort-core 0.4.0 -->  <!-- wall-time: ~600s -->
+      <!--
+      Gate run, scoped reach, live skipped. Verdict: passed over 1 of 11 features; 0 not accepted.
+      Recorded in `.hora/acceptance/1.0.0/run-record.md`, run 1.
+
+      1754 unit tests passed across the four groups `test.sh` defines, driven in its order and
+      executed rather than reused. Lint clean.
+
+      **Partial, and the record says why.** Steps 3 and 4 had no equipped delegate: both read an API
+      surface or a UI, and this feature declares neither -- which §10 states rather than omits. Four
+      findings, none sending the run back to a checkpoint: the missing delegates; what actually
+      judged the behaviour (checkpoints 8 and 9, at the same HEAD this gate judges); the two criteria
+      judged against the record rather than against the flow that will produce it; and that no
+      operator tool exists yet, which §10 says itself.
+
+      **No feature of this product has been driven live yet** -- no acceptance record anywhere
+      carries `live: yes`. The whole-version sweep is the run that changes that.
+      -->
