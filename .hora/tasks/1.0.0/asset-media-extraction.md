@@ -200,7 +200,7 @@ Constraint: a model call is never retried automatically (#scope, permanently out
       its own derivation and not the criterion, whose "no model call" half is vacuous in a class that
       never calls one.
       -->
-- [x] 5. The modules the implementation needs  <!-- skills: hoc-classes-principles, hoc-classes-constructor, hoc-classes-notations, hoc-naming, hoc-jsdoc, hoc-methods, hoc-accessors, hor-constant-definition, hor-type-interface, hor-sequelize-model, hor-external-api-client, hor-backend-testing, hoc-jest; digests: hora-skills-ort-renchan 0.2.1, hora-skills-ort-core 0.4.0 -->  <!-- cleared: 1; reopened-by: 9; agents: 2; agent-time: ~12500s; wall-time: ~14400s -->
+- [x] 5. The modules the implementation needs  <!-- skills: hoc-classes-principles, hoc-classes-constructor, hoc-classes-notations, hoc-naming, hoc-jsdoc, hoc-methods, hoc-accessors, hor-constant-definition, hor-type-interface, hor-sequelize-model, hor-external-api-client, hor-backend-testing, hoc-jest; digests: hora-skills-ort-renchan 0.2.1, hora-skills-ort-core 0.4.0 -->  <!-- cleared: 2; reopened-by: 9, 8; agents: 3; agent-time: ~14400s; wall-time: ~16800s -->
       <!--
       **Second pass, after checkpoint 9 sent the run back for the module that was missing.**
 
@@ -244,6 +244,25 @@ Constraint: a model call is never retried automatically (#scope, permanently out
 
       Verified green on two consecutive full runs: `npx eslint .` clean, 3497 across 102 suites and
       422 across 7.
+
+      **Third pass, sent back by checkpoint 8 rather than by 9.** The fixture above opened a
+      reproduced availability defect: the whole media signature and the read photographs were
+      digested **once per field**, so one accepted request could hold this service's own queue for
+      tens of minutes of synchronous CPU — which the 300-second run limit cannot interrupt, a
+      deadline being unable to stop synchronous work and a blocked event loop being unable to fire
+      the timer carrying it. The run-invariant part is now digested once per run; measured on the
+      real class, 1000 fields against a 100 KB signature fell from 159 ms to 8 ms, and the cost no
+      longer depends on the signature at all.
+
+      Three linear scans over caller-sized collections became keyed lookups, **one of them found by
+      the implementer rather than named in the brief** — `FieldConsensusResolver#buildRejection()`,
+      the largest of the three when nothing settles. Behaviour was held by a 4,000-case randomised
+      differential against the pre-change semantics, including the rule that a duplicated path
+      keeps its first entry, which a `Map` preserves only when built to.
+
+      A non-string media signature is now refused at the supplier boundary rather than overflowing
+      the shared digester's recursion — the narrower fix, since every other caller depends on that
+      recursion as it is.
       -->
       <!--
       **First pass**, whose run record is folded into the line above.
@@ -294,7 +313,7 @@ Constraint: a model call is never retried automatically (#scope, permanently out
 
       Final state at `52ebf86`: `npx eslint .` clean, 3268 across 90 suites and 400 across 6.
       -->
-- [x] 6. Actual API  <!-- skills: hoc-classes-principles, hoc-classes-constructor, hoc-naming, hoc-jsdoc, hoc-methods, hor-constant-definition, hor-restfulapi-renderer, hor-backend-testing, hoc-jest, hoc-test-execution; digests: hora-skills-ort-renchan 0.2.1, hora-skills-ort-core 0.4.0 -->  <!-- agents: 1; agent-time: ~1519s; wall-time: ~1900s -->
+- [x] 6. Actual API  <!-- skills: hoc-classes-principles, hoc-classes-constructor, hoc-naming, hoc-jsdoc, hoc-methods, hor-constant-definition, hor-restfulapi-renderer, hor-backend-testing, hoc-jest, hoc-test-execution; digests: hora-skills-ort-renchan 0.2.1, hora-skills-ort-core 0.4.0 -->  <!-- cleared: 1; reopened-by: 8; agents: 2; agent-time: ~3400s; wall-time: ~4000s -->
       <!--
       The stub's body and every `*Stub*` member are gone, and the route now accepts and leaves the
       run `queued`. Nothing executes it until checkpoint 7 wires the job — intended, written down,

@@ -4144,3 +4144,43 @@ same collapse rather than a defect of its own.
       likelier answer. Either is a change to how every run of this repository behaves, so it is a
       person's call.
 
+
+## Q135 — a default installation serves fabricated values to a client, and two of the three kinds carry no mark
+
+- category: design
+- blocking: no
+- raised by: checkpoint 8 (re-run) of `#asset-media-extraction`
+
+`AI_MODEL.STUB` carries `IS_DEFAULT: true` and is the only seeded model row, so a deployment that
+never adds a real provider row serves the fixture's readings through the whole pipeline. They reach
+the client verbatim, in the result body and in the terminal callback.
+
+The marking is real but uneven, and the fixture's own class says why:
+
+| kind | what the client receives | marked |
+|---|---|---|
+| text | `stub-value-<digits>` | yes |
+| number | a plain number inside the caller's own stated range | **no** |
+| select | one of the caller's own options | **no** |
+| every field's `reason` | `[stub] demonstration value for <path>, supplied without a model call.` | yes |
+
+A number cannot carry a marker without ceasing to be a number, and a select value must be one of the
+options sent or step 4 drops it — so the `reason` line is the only place every settled field can say
+what it is, and it does.
+
+- [ ] open
+      **This is not a defect and it is not what checkpoint 8 failed on.** It was graded INFO,
+      deliberately, and is recorded because a production installation that fails open to a fixture
+      should be a decision somebody made rather than a default nobody examined.
+
+      **The question is one sentence long**: should a service with no real provider row configured
+      answer runs at all, or refuse them? Today it answers, and the client is told what it is
+      getting only in a line it may or may not display. The alternative — refusing a run when the
+      resolved model is the keyless one outside development — would protect a client that wires the
+      demo endpoint to a live screen, and would cost the demonstrability that [[Q133]]'s fixture was
+      built for.
+
+      **It interacts with §20's use case 4**, which is exactly the capability the fixture exists to
+      serve, so refusing outright is not obviously right. What is wrong is only that nothing
+      currently makes the choice visible.
+
