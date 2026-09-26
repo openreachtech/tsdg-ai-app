@@ -2523,3 +2523,1737 @@ question underneath it is whether each recorder should carry its own.
       is checked at each writer or at the base model; this asks the same of a `BIGINT` key. Both
       answers point at the same place: a model layer that holds an attribute to its declared kind
       would cover every table at once, and would need no writer to remember.
+
+
+## Q85 — criterion 3 names a model call, and nothing calls a model at this gate
+
+- category: spec-assumption
+- blocking: no
+- raised by: checkpoint 1 of `#run-execution`
+
+§11's third acceptance criterion reads "a model call is never retried automatically: a run that
+fails on a provider error reports it rather than calling again". §11 also states that the concrete
+job of a service belongs to that service, and that job is `#asset-media-extraction`, the seventh
+feature. So at this gate there is a worker, a queue and a job body of `{ aiRunId }`, and nothing
+that calls a model.
+
+**The reading assumed, and approved by the owner:** the criterion is a statement about the queue's
+retry policy rather than about a model being called. A job runs once and is never retried
+automatically; a provider failure is recorded as `PROVIDER_CALL_FAILED`. Both halves are checkable
+here — fail a job, observe no second delivery, read the run's reason code — using `#provider-layer`'s
+stub driver to produce the failure.
+
+- [ ] open
+      **What this pass does not establish**, recorded so no later gate reads it as though it did:
+      that a model was ever called, that a real provider failure produces this code, or that the
+      driver reports one the way the criterion assumes. The first run in which a model call
+      actually happens is `#asset-media-extraction`'s, and that is where the criterion becomes
+      checkable in the sense its words suggest.
+
+      Nothing is owed here. Left open so that the feature which does call a model reads this rather
+      than re-deriving it.
+
+
+## Q86 — Sequelize runs `afterCommit` hooks even when the COMMIT itself failed
+
+- category: upstream-defect
+- blocking: no
+- raised by: checkpoint 5 of `#run-execution`
+
+§11's first acceptance criterion is "the job for a run is dispatched only after the transaction that
+created the run has committed; a transaction that rolls back dispatches nothing". The dispatch is
+registered on `transaction.afterCommit()`, which is the only hook Sequelize offers for it.
+
+**Sequelize 6.37.8 runs those hooks from a `finally`**, after its `catch` has already decided to
+re-throw, and sets `this.finished = 'commit'` either way — verified in
+`node_modules/sequelize/lib/transaction.js`:
+
+```js
+} catch (e) {
+  await this.forceCleanup()
+  throw e
+} finally {
+  this.finished = "commit"
+  for (const hook of this._afterCommitHooks) {
+    await hook.apply(this, [this])
+  }
+}
+```
+
+So a transaction whose COMMIT **failed** still fires the hook, and the hook is given nothing that
+would let it tell that apart. The criterion's stated rollback clause is safe — `rollback()` never
+touches the hooks — so the exposed window is a failing COMMIT alone.
+
+- [ ] open
+      **Not worked around in our own code, deliberately.** A hook cannot distinguish the case, and
+      re-reading the row per dispatch would buy a query against a window this narrow.
+
+      **What covers it instead:** the worker loads its run by `aiRunId` and no-ops when the row is
+      absent. The job body is `{ aiRunId }` and nothing else, so that read already happens — the
+      mitigation costs nothing and is the same read the design already required.
+
+      **Removal condition:** drop this note if Sequelize moves the hook loop out of the `finally`,
+      or gives the hook a way to know the commit failed.
+
+## Q87 — the equipped job skill documents a surface the installed package does not have
+
+- category: upstream-defect
+- blocking: no
+- raised by: checkpoint 5 of `#run-execution`
+
+`hor-renchan-job-bullmq` (from `hora-skills-ort-renchan` 0.2.1), and therefore its digest, describe
+two things that do not exist in `@openreachtech/renchan-job-bullmq` **1.1.3**, which is the version
+installed and the version `npm view` reports as `latest`:
+
+- `BaseJobEngine.createAsync({ subscriptionBroker })` and a Share holding a `subscriptionBroker`.
+  Verified: the signature is `createAsync ({ config = this.config } = {})`, and the string
+  `subscriptionBroker` appears in **no file** under the package's `lib/`.
+- `RedisConnection#generatePubSubOptions()`, which has no consumer here and no subscriber to serve.
+
+The digest is not at fault — it summarized the skill faithfully. The skill is what diverges.
+
+- [ ] open
+      **Why it matters beyond this checkpoint:** checkpoint 7 builds the job daemon's entry point,
+      and a reader following the skill would take the boot path that passes a broker. That path does
+      not exist, so the daemon would not start. The path that does exist is
+      `JobWorkersDaemon.createAsync({ EngineCtor })`.
+
+      That is also the right path for this product on its own merits: nothing here subscribes,
+      because a run reports its outcome by callback (`#run-delivery`), not by publishing progress —
+      and progress is `#run-progress`, which this version withdrew.
+
+      **What is owed:** report the divergence to whoever maintains `hora-skills-ort-renchan`. Until
+      then, the installed package's own files are the authority for this feature, and both the
+      engine and the connection were written against them rather than against the skill.
+
+
+## Q88 — the job loader reads its workers directory without checking it exists
+
+- category: upstream-defect
+- blocking: no
+- raised by: checkpoint 7 of `#run-execution`
+
+`@openreachtech/renchan-job-bullmq` 1.1.3, `lib/tools/DeepBulkClassLoader.js#loadFileNames()`:
+
+```js
+return fs
+  .readdirSync(poolPath)
+  .filter(it => !it.startsWith('.'))
+```
+
+No guard. An engine whose `workersPath` does not exist yet kills the daemon at boot with `ENOENT`,
+where listening on nothing would be the truthful outcome — and "nothing yet" is the ordinary state
+of a service whose first job has not been written.
+
+- [ ] open
+      **Worked around in our own code, not by patching the package**: `app/jobs/.keepDirectory.js`
+      makes the directory exist. It is load-bearing rather than scaffolding, and it works because
+      the loader's own filter skips a name beginning with a dot, so the directory yields zero
+      workers rather than trying to import a file that is not one. The same idiom
+      `server/restfulapi/renderers/v1/get/` already uses.
+
+      **Removal condition:** when the loader answers an absent directory with an empty list. At that
+      point the keep-file stops being a workaround and becomes ordinary directory scaffolding —
+      which is also when `app/jobs/` will hold a real job anyway.
+
+## Q89 — the second acceptance criterion cannot be observed until a service supplies a job
+
+- category: spec-assumption
+- blocking: no
+- raised by: checkpoint 7 of `#run-execution`
+
+§11's second acceptance criterion is "a run accepted while no worker is running is executed once a
+worker starts". It is a property of a durable queue plus a daemon that boots and binds to it.
+
+Everything it needs is built: Redis is declared and running, the queue library is installed, the
+daemon boots and auto-discovers workers under `app/jobs/`, and the accept path enqueues after
+commit. **But `app/jobs/` holds no job**, because §11 says outright that the concrete job of a
+service belongs to that service — `#asset-media-extraction`, the seventh feature. So the daemon
+binds no queue, and there is nothing for an accepted run to be executed *by*.
+
+- [ ] open
+      **What this gate established is structural, not observable**, and the distinction is the whole
+      of this entry: the parts are present and wired, and no run has been carried across a restart
+      because no run can be carried at all yet.
+
+      **Not weakened and not worked around.** No test was written that would pass without proving
+      the criterion — the implementer named the gap instead, which is why it is recorded here.
+
+      **Where it becomes checkable:** `#asset-media-extraction`'s gate, and the whole-version sweep.
+      Worth reading at `#run-execution`'s own checkpoint 9 and at its acceptance gate, so neither
+      reads a pass there as evidence that a run survived a restart.
+
+
+## Q90 — the job daemon executes any `.js` that lands under its workers path
+
+- category: undefined-detail
+- blocking: no
+- raised by: checkpoint 8 of `#run-execution`
+
+`scripts/startJobDaemon.js` boots `JobWorkersDaemon`, which walks `app/jobs/` recursively and
+`import()`s every `.js` / `.cjs` / `.mjs` whose name does not begin with a dot. A top-level side
+effect in such a file runs at boot with the daemon's full authority, and any default export that is
+a `BaseJobWorker` subclass is bound to a queue **with no registration step anywhere**.
+
+This is the framework's own design and the directory is repository-controlled, so it is recorded
+rather than flagged as a defect.
+
+- [ ] open
+      **Why it is written down at all:** the daemon script's docblock presents the absence of a
+      registration step purely as a convenience — "a service that adds a job directory under that
+      path is picked up with no file edited here". The other half is that the path is the only thing
+      standing between a file and being executed. Both halves are now in that docblock.
+
+      **The adjacent fact worth keeping beside it:** `app/jobs/.keepDirectory.js` exports
+      `Object`, and is skipped only because the loader filters names beginning with a dot ([[Q88]]).
+      If that filter ever changes, the global `Object` constructor would be offered to the daemon as
+      a candidate worker class. Harmless while the filter stands, and the two are worth reading
+      together.
+
+      **What would close this:** nothing is owed. It is the shape of the framework, and a reviewer
+      of `#asset-media-extraction` — the first feature to put a real file in that directory — is who
+      this entry is written for.
+
+
+## Q91 — the spec defines the media allow-list and never says where it lives
+
+- category: undefined-detail
+- blocking: no
+- raised by: checkpoint 1 of `#media-fetch`
+
+§18's first acceptance criterion turns on it: "a file URL whose host is not on the allow-list is
+refused, and nothing is fetched". §5's glossary defines the term — "the set of hosts this service
+may fetch a file from. A URL on any other host is refused" — and §NFR repeats it: "Media arrives as
+a URL this service fetches from an allow-listed host".
+
+**Nothing says where the set of hosts is held.** §23's key file map is an empty table, no section
+names a configuration file or an environment key for it, and §18 declares its three tables —
+`ai_run_media_categories`, `ai_run_media`, `provider_uploaded_files` — with no allow-list among
+them.
+
+- [ ] open
+      **The reading taken, and why:** an environment key, read through `app/globals/_.js` like every
+      other deployment fact this service holds.
+
+      The strongest evidence is the omission itself. §18 lists its tables exhaustively; a feature
+      whose data model is stated that completely would have declared a fourth table if the
+      allow-list were one. And the value cannot be a constant in code, because development fetches
+      from a local or fake host and live fetches from the client's own storage — a deployment fact
+      by definition. Adding a host is then a deployment change rather than a migration, which is
+      also the cheaper of the two for a set that will change when the client moves storage and
+      almost never otherwise.
+
+      **What the reading gives up:** an allow-list in a table could be per client, could carry a
+      reason and a date, and would be readable by an operator without a deployment. Nothing in
+      §18 asks for any of that, and the criterion is written about "the allow-list", singular and
+      service-wide.
+
+      **Worth settling in the spec** — this is a durable design fact that a later reader will want
+      stated rather than inferred from an absence.
+
+
+## Q92 — the run response's `engine` carries two facts, and one of them is per field
+
+- category: undefined-detail
+- blocking: no
+- raised by: checkpoint 3 of `#run-delivery`
+
+`.hora/contracts/1.0.0/client-api.md` says `engine` holds "which loop and model produced the result,
+**and** the version of the confidence formula that scored it" — two facts. The data model carries
+them in two places and at two different grains:
+
+- `ai_runs.engine_label` — one string, one per run
+- `ai_run_field_outcomes.confidence_method_version` — **one per settled field**, so a single run can
+  carry several different values
+
+§12 declares no shape for `engine`, and neither does the contract.
+
+- [ ] open
+      **The reading taken at checkpoint 3**, and used unchanged by checkpoint 4's stub:
+      `engine: { label, confidenceMethodVersion }`, both nullable. It is the only reading that
+      carries both facts without smushing them into one string.
+
+      **What it leaves open, and what checkpoint 6 must decide:** what a run whose settled fields
+      carry two *different* `confidence_method_version` values answers. The candidates are the one
+      shared by every field (null when they disagree), the newest, or a move of the field to
+      `steps[]` where the grain matches. Nothing in the spec prefers any of them.
+
+      **Not drift.** The contract states the content; it just does not state the shape. Worth
+      settling in the spec before `#run-list` answers the same field for many runs at once.
+
+## Q93 — `steps[]` has no declared field list anywhere
+
+- category: undefined-detail
+- blocking: no
+- raised by: checkpoint 3 of `#run-delivery`
+
+`GET /v1/ai-runs/:runKey?expand=steps` answers a `steps[]`, and **no section says what is in a
+step**. §12 does not, §10 does not, and the contract names the array without naming its fields. §10
+says outright that "the API read-back is `#run-delivery`", so the shape falls to this feature by
+default rather than by statement.
+
+- [ ] open
+      **The reading taken at checkpoint 3**: the seven fields readable off `ai_run_steps` —
+      `stepIndex`, `stepName`, `stepCategoryName`, `outcomeCode`, `reasonCode`, `startedAt`,
+      `finishedAt`.
+
+      **`rejections` is deliberately excluded**, and that is the part worth a decision rather than
+      an inference. It is the internal decision trace; the contract never names it; and §10 is
+      emphatic that the trace holds figures and never values. Handing it to a client would be a
+      spec edit, not a code change.
+
+      **Where it bites:** a client debugging a run will ask why a field was rejected, and the answer
+      is in the column this reading withholds. That is a product decision about what a partner may
+      see, which is why it is recorded rather than settled here.
+
+## Q94 — which media kinds this version handles is a flag, not a name in code
+
+- category: design
+- blocking: no
+- raised by: checkpoint 3 of `#media-fetch`
+
+§18 seeds three media categories — `image`, `video`, `audio` — and says the two unhandled ones exist
+"so a request naming one of them is refused by name rather than ignored". **It does not say how the
+handled one is distinguished from the other two.**
+
+- [ ] open
+      **The reading taken**: `is_active` on `ai_run_media_categories`, `image` true and the other two
+      false. What it buys is that the distinction is a data fact rather than a list in code — turning
+      video on later is a flag flipped on an existing row, and a fourth kind is a new row, neither of
+      them a code change.
+
+      **What it obliges**: checkpoint 5 must **read the flag**, not hard-code `image`. Written into
+      this feature's brief for that reason.
+
+      **The alternative not taken** was seeding only `image` and refusing anything else as unknown —
+      rejected because it cannot tell "a kind we know and do not handle yet" from "a kind that does
+      not exist", which is exactly the distinction §18 asks the refusal to make.
+
+## Q95 — a fifth file now carries an inline lint exception
+
+- category: eslint-exception
+- blocking: no
+- raised by: checkpoint 8, round 2, of `#run-execution`
+
+`eslint.config.js` keeps a list of files permitted an inline `eslint-disable`, under a comment
+reading "🚨 Never add other files to this files." It held four. It now holds five:
+`sequelize/models/AiRun.js`, for `no-param-reassign` on one line.
+
+The line is `options.where = provenAiRunCondition`, inside `beforeBulkUpdate`. **Sequelize gives a
+bulk hook no return channel** — it reads `options.where` back after the hook and builds the statement
+from it — so assigning to it is the only way the UPDATE runs under the condition the model built
+rather than under the caller's object. Three routes were tried and none avoided it: a named method
+taking `{ options }` is still flagged (the destructured binding is a parameter binding), the rule's
+`ignorePropertyModificationsFor` option is empty in the shared config, and `Object.assign` is on the
+`no-restricted-properties` denylist.
+
+- [ ] open
+      **Put to the person running the session and approved by them**, with the alternative stated:
+      dropping the substitution and keeping only the compile check needs no exception, but drops the
+      guarantee from "the statement runs under this model's condition" to "the caller's `where`
+      compiled to that condition at the instant the hook asked" — which a `where` answering
+      differently on a second read would satisfy while running something else.
+
+      **Removal condition:** if Sequelize ever gives a bulk hook a return channel for its `where`,
+      or if the shared config grows an `ignorePropertyModificationsFor` covering a hook's options.
+
+
+## Q96 — a step still running must carry an outcome code, and no vocabulary names one
+
+- category: contradiction
+- blocking: no
+- raised by: checkpoint 4 of `#run-delivery`
+
+`ai_run_steps.outcome_code` is `NOT NULL` while `finished_at` is nullable. Those two together say a
+step that has started and not finished must nevertheless carry an outcome code — and **§10 and §20
+name no code for "still running"**. The table belongs to `#run-record`, which is already accepted,
+so this is a contradiction inside shipped schema rather than a gap in work not yet done.
+
+- [ ] open
+      Found while building the stub for `GET /v1/ai-runs/:runKey`, which has to answer a `running`
+      run's `steps[]` and therefore had to put *something* in the column. The stub uses `running` as
+      a specimen and says so in the file.
+
+      **Two ways out, and they are not equivalent.** Making the column nullable while a step is in
+      flight says "no outcome yet" in the schema, and `finished_at` already carries that information
+      so the pair stays consistent. Writing a `running` code into the vocabulary makes the in-flight
+      state a value like any other, which reads better in a response but means every consumer must
+      know that one code is not terminal.
+
+      **Where it bites:** checkpoint 6 answers this field from real rows, so whichever is chosen has
+      to be chosen before then. Until it is, a real `running` step has no defined answer.
+
+## Q97 — the asset-media-extraction result has a table in §20 and no type declaration
+
+- category: undefined-detail
+- blocking: no
+- raised by: checkpoint 4 of `#run-delivery`
+
+A stub for §12 cannot answer a succeeded run without materializing the `result` payload, and
+`result` is "per service" — §12 declares no shape and the contract gives only the
+asset-media-extraction table from §20. So **this feature's stub now contains a specimen of a later
+feature's payload**, taken field for field from §20's table.
+
+- [ ] open
+      Checkpoint 3 typed the field `Record<string, unknown> | null` with a comment saying the
+      answering service declares its own, so that a second service adds its own interface rather
+      than editing this one. That part is settled and is the right shape.
+
+      **What is not settled:** `#asset-media-extraction`'s own checkpoint 3 should declare the
+      concrete interface under `types/restfulapi/`, and **this stub's specimen must then be
+      reconciled against it**. Two independent renderings of one payload is exactly the drift the
+      one-builder-two-callers rule exists to prevent, and right now there are two.
+
+## Q98 — a decimal's wire type is decided by the dialect unless someone decides it
+
+- category: undefined-detail
+- blocking: no
+- raised by: checkpoint 4 of `#run-delivery`
+
+`ai_run_field_outcomes.suggestion_confidence` is a `decimal`. **Sequelize hands a `DECIMAL` back as
+a string on MariaDB** and the contract says nothing about the wire type, so a client reading
+`suggestionConfidence` gets `0.92` or `"0.92"` depending on which dialect answered.
+
+- [ ] open
+      The stub emits a number. Checkpoint 6 reads real rows and will emit a string unless it casts.
+
+      **This is the same trap that already failed once here** — `#run-record`'s checkpoint 3
+      recorded a DECIMAL/SQLite failure, and the local database is SQLite while live is MariaDB, so
+      a suite that passes locally does not settle it.
+
+      Decide once, in the contract, rather than let a client discover it. The same question reaches
+      every money-shaped or score-shaped field this product answers.
+
+## Q99 — the spec says a value is written in the asset owner's language, and the file rule says English
+
+- category: spec-assumption
+- blocking: no
+- raised by: checkpoint 4 of `#run-delivery`
+
+§20 says extracted values and their reasons are written in the language the asset owner reads. The
+project's own rule is one language per file and English in files. **A client reading the stub would
+reasonably conclude the field is ASCII**, because the canned `reason` strings are English with a
+comment stating the production language.
+
+- [ ] open
+      The stub is right to be English — the file rule governs what is in a file. What is missing is
+      a line in §12 or the contract saying the field is **free text in the asset owner's language**,
+      so a consumer sizes and renders it accordingly rather than discovering multi-byte text in
+      production.
+
+## Q100 — the equipped stub-API skill has no REST chapter
+
+- category: upstream-defect
+- blocking: no
+- raised by: checkpoint 4 of `#run-delivery`
+
+`hor-stub-api` is GraphQL-only: every instruction is about
+`server/graphql/resolvers/<audience>/stub|actual/`, `static get schema ()` and `errorCodeHash`.
+**This product's only client-facing surface is REST**, and the REST layer has no `stub/`↔`actual/`
+split to migrate through — one `renderersPath`, one class per route.
+
+- [ ] open
+      **Carried over rather than skipped**: the skill's grand principle (hardcoded literals only,
+      shape-accurate, the real class name and the real interface) applies unchanged, and the REST
+      form of the migration is written into the renderer's own JSDoc — checkpoint 6 keeps the file,
+      the class name, `get:routePath` and the response shape, and replaces the body; the canned
+      constants leave with the old body.
+
+      **One instruction of the skill pulled against this checkpoint's own requirement.** The skill
+      forbids conditionals; the assignment asked for a canned answer per distinguishable state.
+      Resolved with hash lookups — the sanctioned dispatch form — and no branch anywhere, with both
+      reads made total so a key reaching `Object.prototype` behaves as an unknown key does.
+
+      **What is owed:** report the gap to whoever maintains the equipped skills package. A REST
+      chapter, or a statement that the principle is surface-independent, would remove the judgment
+      call from the next person who stubs a route.
+
+## Q101 — the stub is a live route the moment the engine starts
+
+- category: design
+- blocking: no
+- raised by: checkpoint 4 of `#run-delivery`
+
+The REST layer has no barrel. `AppRestfulApiServerEngine.config.renderersPath` points at
+`server/restfulapi/renderers/v1/`, and `RestfulApiRoutesBuilder` deep-loads every class under it
+whose prototype is a `BaseRenderer` and registers it at boot. **So `GET /v1/ai-runs/:runKey` answers
+canned data from the next start**, and it is the first renderer to land under that tree.
+
+- [ ] open
+      **Verified in the main session rather than taken on report**, because a stub that answers the
+      outside world is different from a stub that does not. `BaseRenderer#passesFilter` defaults to
+      `false`, and `RestfulApiRoutesBuilder#generateRendererHandler()` reads that as *run the filter
+      handler* — the naming is inverted, and the renderer inherits the default, so the engine's own
+      filter answers `401`/`403` ahead of the canned body. The stub is behind authentication.
+
+      **What remains true and worth stating:** between now and checkpoint 6, an authenticated client
+      reading a run back gets invented data rather than an error. That is what a stub is for, and
+      the window is one gate wide, but it is a window on a real surface rather than on a mock.
+
+
+## Q102 — the spec says "10 MB per photo" and never says which megabyte
+
+- category: undefined-detail
+- blocking: no
+- raised by: checkpoint 5 of `#media-fetch`
+
+§7 states the cap as "10 MB per photo, and at most 12 photos in one request — matching the client's
+own upload limit, so nothing is refused twice for different reasons". **A file between 10,000,000
+and 10,485,760 bytes is accepted on one reading and refused on the other.**
+
+- [ ] open
+      **The reading taken**: `10 * 1024 * 1024 = 10485760`, written into the constant's comment with
+      its reasoning — an upload limit is customarily stated in binary, and it is the larger of the
+      two readings, so nothing the client's own uploader accepted is refused here. The spec's own
+      justification for the cap ("matching the client's own upload limit") is what makes the larger
+      reading the safer one: refusing something the client already accepted is the failure this
+      sentence exists to prevent.
+
+      **Worth one line in the spec**, because the two readings differ by 485,760 bytes and the
+      boundary is exactly where a complaint would come from.
+
+## Q103 — the contract fixes no field names for the limit reason's parameters
+
+- category: undefined-detail
+- blocking: no
+- raised by: checkpoint 5 of `#media-fetch`
+
+`MEDIA_LIMIT_EXCEEDED` is the one reason code of the seven that carries parameters, and
+`.hora/contracts/1.0.0/client-api.md` says only that they "carry the limit". **No field names.** The
+client system builds its own wording out of them, so the names are part of the interface whether or
+not the contract says so.
+
+- [x] resolved at checkpoint 5 of `#run-delivery`
+      **The shape chosen**: `{ limitName, limitValue, declaredValue }`, with `limitName` one of
+      `'mediaByteSize'` / `'mediaCount'`. The distinction matters because the size cap and the count
+      cap share one reason code and are two different things for a person to do about — trim a photo,
+      or send fewer.
+
+      **Why this one won over the stub's `{ mediaCountLimit, sentMediaCount }`:** the contract's own
+      row says `MEDIA_LIMIT_EXCEEDED` covers "over the byte cap, **or** more media than the limit",
+      and §20's criterion says "with the limit named in the reason's parameters". The kept spelling
+      names which limit was exceeded and covers both cases; the other names no limit and can express
+      only one. The stub's canned literal was changed to match in the main session, so no second
+      spelling remains on the branch.
+
+      **Still worth a line in the contract**, which names no fields for this at all — the reconciliation
+      settled which spelling this product uses, not what the contract states.
+
+      **This belongs in the contract** rather than being settled by the first implementation that
+      needed it. `#run-delivery`'s stub independently chose `{ mediaCountLimit, sentMediaCount }` for
+      the same code — **so there are already two spellings of one payload in this branch**, which is
+      exactly what a contract exists to stop. They must be reconciled before checkpoint 6.
+
+## Q104 — the kind refusal is required by the constraint block and by no acceptance criterion
+
+- category: contradiction
+- blocking: no
+- raised by: checkpoint 5 of `#media-fetch`
+
+§18's constraint block and the client contract both require `MEDIA_UNSUPPORTED` — "a medium of a kind
+this version does not handle, named rather than ignored", which is also why §18 seeds `video` and
+`audio` at all. **None of §18's six acceptance criteria covers it.**
+
+- [ ] open
+      `AiRunMediaCategoryInspector` was built and tested for it anyway, because checkpoint 3 put
+      `is_active` on the master for exactly this and [[Q94]] records that reading.
+
+      **The gap is in what the gate can catch, not in the code.** No criterion covers this behaviour,
+      so a later change that dropped the kind check would pass this feature's checkpoint 9 and its
+      acceptance gate with nothing red. Every other behaviour §18 asks for has a criterion standing
+      over it; this one does not.
+
+      **The fix is a criterion in §18**, which is `/hora-spec`'s to write, not this feature's.
+
+## Q105 — use case 2 has nothing to call, and checkpoint 9 will find that
+
+- category: spec-assumption
+- blocking: no
+- raised by: checkpoint 5 of `#media-fetch`
+
+§18's second use case is "ORT answers, months later, exactly which file was handed to which provider
+and when". Checkpoint 2 verified it on paper against the table and its join, and that verification
+holds. **But §18 declares no operation for it**, so there is no API to ask.
+
+- [ ] open
+      Deliberately not built: an operation reaching past this checkpoint would be work the spec does
+      not ask for, and inventing one here would put a client-facing surface into the product by
+      implication rather than by decision.
+
+      **Where it surfaces:** checkpoint 9 re-verifies the use cases against the **built API**. For
+      this one there is nothing to call, so the answer will be that the data is there and the
+      question cannot be asked over the wire. That is a true answer and it should be recorded as one
+      rather than read as a failure — but it is also the moment to decide whether an operator tool,
+      a query, or nothing at all is what this use case actually wants.
+
+## Q106 — two catalogued packages were read and not taken
+
+- category: design
+- blocking: no
+- raised by: checkpoint 5 of `#media-fetch`
+
+The once-per-feature catalog check found two entries overlapping this work. Both were declined, and
+the reasoning is recorded so the choice is a decision rather than an oversight.
+
+- [ ] open
+      **The rocket-client triad** (Launcher / Payload / Capsule), which the external-API-client
+      convention is written around. It models endpoints of *one* API: a Launcher holds a base URL, a
+      Payload describes method / pathname / query / body. A media fetch has **no base URL** — the
+      host varies per request and is bounded only by the allow-list — no pathname to describe, since
+      the whole URL arrives verbatim in the request body, and a binary body rather than a parsed one.
+      The convention's cross-cutting rules were followed instead: native `fetch` only, failure
+      decided from the returned value rather than a `try`/`catch` at the caller, `null` never
+      `undefined`, and `fetch` reached through a static getter so a test substitutes it.
+
+      **The unit said outright it was not fully confident in this one**, and that is worth keeping:
+      taking the triad later is a dependency plus a rewrite of `MediaFetchClient`, not a refactor.
+
+      **The value-inspector package**, overlapping the whole-number checks. Declined because this
+      repository already answers the same question by hand in `AiRunKeyInspector` ([[Q9]] records the
+      same call for `RunKeyGenerator`), and because the behaviours differ where it matters: a
+      declared size of `0` must **pass** the cap check while `isPositiveNumberLike()` would refuse
+      it, and `'007'` must not read as a size.
+
+
+## Q107 — nothing sweeps a temporary workspace a dead worker left behind
+
+- category: undefined-detail
+- blocking: no
+- raised by: checkpoint 7 of `#media-fetch`
+
+§18 says a fetched file's temporary copy "lives on the worker's disk for the length of the run and
+is deleted when the run ends", and the removal is now hooked into the only place that knows a run
+has ended. **A delivery whose process is killed between the fetch and the removal runs no `finally`
+at all**, and the copy stays on disk.
+
+**§19's retention section declares three purge jobs and all three are database sweeps.** None of
+them touches the disk, so this is not covered there either.
+
+- [ ] open
+      **No disk sweeper was invented**, deliberately. A periodical job that deletes files is
+      `#retention`'s to declare, and §19 declares none — building one here would put a file-deleting
+      job into the product by implication rather than by decision, and a sweeper that gets its
+      pattern slightly wrong deletes a running delivery's working files.
+
+      **The mitigation that exists**: the workspace root is the machine's own temporary directory,
+      so the operating system reclaims it eventually. That is a mitigation, not a plan, and it is
+      stated as such in two class comments rather than left to be assumed.
+
+      **What a decision here looks like:** either §19 grows a fourth purge that sweeps workspaces
+      older than the run time limit, or §18 states that the temporary directory's own lifecycle is
+      the answer and a killed process's leftovers are accepted. Both are defensible; neither is
+      written down.
+
+      Worth reading at `#retention`'s gate, and at the whole-version sweep.
+
+
+## Q108 — reading a run back stops returning the callback's body after the content purge
+
+- category: contradiction
+- blocking: no
+- raised by: checkpoint 5 of `#run-delivery`
+
+§12's fourth criterion is unconditional: "reading a run back by its key returns the same body the
+terminal callback carried". **§19 purges `result_body` after thirty days**, so from day thirty-one
+the read-back answers `result: null` while the callback carried a result.
+
+- [ ] open
+      §10 is clear that the purge is intended — the decision figures survive on the long clock
+      *precisely because* the content does not. So the two sections do not disagree about behaviour;
+      §12's criterion is simply written without the clause that makes it true.
+
+      **No test was weakened for this.** The tests assert the body a run carries at the time it is
+      read, which is the honest statement of what the builder does.
+
+      **The fix is one clause in §12** saying the equality holds until the content purge. Worth
+      settling before the whole-version sweep reads that criterion against a product that will
+      eventually contradict it.
+
+## Q109 — a stored result that will not parse has no stated answer
+
+- category: undefined-detail
+- blocking: no
+- raised by: checkpoint 5 of `#run-delivery`
+
+`ai_runs.result_body` holds what the answering service wrote. **Nothing says what a read-back answers
+when that column holds text that is not an object** — unparseable, an array, a bare number, or null.
+
+- [ ] open
+      **The rule chosen**, written into `AiRunResponseBuilder#buildResult()`: `result: null` whenever
+      the column holds no object. The client still gets `statusName`, `usage` and `failure` rather
+      than a `500`, which is the more useful failure.
+
+      **The cost, stated in the code:** a client cannot tell that case from a run whose result was
+      legitimately empty. If the spec would rather it be loud — a `500`, or a distinct failure code —
+      that is a one-line change in that method.
+
+## Q110 — three response fields have no seeded non-null path
+
+- category: undefined-detail
+- blocking: no
+- raised by: checkpoint 5 of `#run-delivery`
+
+`sequelize/seeders/development/*-ai_runs.cjs` writes `engine_label`, `result_body` and
+`failure_parameters` as **null on all ten rows**. So three fields of the run read-back cannot be
+exercised non-null against seeded data.
+
+- [ ] open
+      **A second `ai_runs` seeder was deliberately not added** — that file warns against giving the
+      table two sources of truth, and a second seeder is exactly that. The fields are covered instead
+      by a describe that hands the builder a run entity written out in the case, while its children
+      are read for real.
+
+      **What is owed:** a row or two carrying all three, added to the existing seeder when
+      `#run-contract` is next touched. Until then, the happy path of those three fields rests on a
+      hand-written entity rather than on a row the database produced.
+
+## Q111 — the run-key header's name is a reading, not something the contract states
+
+- category: undefined-detail
+- blocking: no
+- raised by: checkpoint 5 of `#run-delivery`
+
+`.hora/contracts/1.0.0/client-api.md` says a callback is "signed as a request is, plus the run key in
+a header" — and **names no header**. The three inbound header names are fixed there; this fourth one
+is not.
+
+- [ ] open
+      **The spelling chosen**: `x-ort-run-key`, matching the prefix and casing of the three beside it
+      so a client reads one convention across the whole protocol. It lives in
+      `constants/signedRequestHeaderConstants.cjs` with the other three, which is also what stopped
+      the inbound context and the outbound signer from holding two sets of literals.
+
+      **Adding it to the contract's Callback row would be an improvement, not a correction** — the
+      contract is silent rather than wrong. But a client has to know the name to read it, so silence
+      here means the name is discovered from an implementation.
+
+
+## Q112 — a purged run is distinguishable on the record and not on the client surface
+
+- category: contradiction
+- blocking: no
+- raised by: checkpoint 6 of `#run-delivery`
+
+§19 carries a criterion: "a run whose content has been purged is distinguishable from one that never
+carried any". **It is satisfied on the run record and not on the surface a client reads.**
+
+`.hora/contracts/1.0.0/client-api.md`'s `AiRunResponse` carries no purged marker, so
+`GET /v1/ai-runs/:runKey` answers `result: null` for both — a run that was purged after thirty days,
+and a run that never produced a result at all.
+
+- [ ] open
+      Found while replacing the stub's canned body with the real one. The renderer is not where this
+      is decided: the response shape is the contract's, and whether the distinction belongs on the
+      client surface at all is §19's call. Both facts are now written into the renderer's own JSDoc
+      so the next reader does not have to rediscover the asymmetry.
+
+      **Related to [[Q108]] and worth settling with it.** That one says §12's "reading a run back
+      returns the same body the callback carried" is written without the clause the purge makes
+      necessary; this one says the client cannot tell when that clause has bitten. Either the
+      response gains a marker, or §19's criterion states that it is satisfied for an operator and
+      not for a client.
+
+      **Where it bites:** a client reconciling a missed callback months later reads `result: null`
+      and cannot tell whether to re-request the work or accept that the run produced nothing.
+
+
+## Q113 — the time limit stops a run's accounting and does not stop the work
+
+- category: design
+- blocking: no
+- raised by: checkpoint 9 of `#run-execution`
+
+§11's third use case is *"a run that has been going too long stops by itself **instead of holding a
+worker indefinitely**"*. The fourth acceptance criterion — "a run still running past the time limit
+ends as failed, carrying the time-limit reason code" — is kept in full: the race answers, the row is
+written, and the losing side can never reach that row because the status is the base worker's to
+write.
+
+**The use case's own words are not kept.** `BaseAiRunJobWorker` races the work against a timer and
+then leaves the loser "to settle or reject on its own". A work that ignores the race keeps running,
+holding its worker slot — so the daemon's concurrency drops by one for as long as that work lives,
+which for a work that never settles is forever. That is precisely "holding a worker indefinitely".
+
+**There is no channel at all for the work to be told.** `parcel.signal` is deliberately unused, and
+that reasoning is sound — it is BullMQ's abort signal, its firing conditions are undocumented, and a
+limit built on it would be a limit nobody could state the behaviour of.
+
+- [ ] open
+      **The gap is that no signal of this class's own making is offered either.** `executeAiRunWork()`
+      is handed a body, a context and a parcel, and nothing it could honour. The shape that closes it
+      is the one `MediaFetchClient` already uses against the same problem: an `AbortSignal` this class
+      controls, raised when the timer wins, passed into the work.
+
+      **What that buys and what it does not.** Nothing can force a concrete work to honour a signal,
+      so this makes cooperative stopping *possible* where today it is impossible. A work that ignores
+      it still holds its slot — but it then does so by its own choice, which is a different statement
+      from the one that is true now.
+
+      **Why it is worth doing before the seventh feature and not after.** `#asset-media-extraction`
+      is the first concrete `executeAiRunWork()`, and it fetches files and calls a provider — both
+      long, both already signal-aware. If the channel is added after it is written, it is written
+      against the shape that has no channel and then has to be revisited.
+
+      **Second-order, already recorded**: the same absence is why a work still running past the limit
+      can write a media file after the workspace was removed — `#media-fetch`'s checkpoint 7 names it
+      on the class and could do nothing about it. Closing this closes that.
+
+- [x] the channel was built, and it is not the whole of what the use case asks
+      `BaseAiRunJobWorker` now builds a controller per race and hands its signal to
+      `executeAiRunWork()`, raised **only** where the time limit won. Two controllers, because the
+      two cancellations run opposite ways: the work's signal is raised only on a loss, while the
+      alarm behind it is cancelled whichever way the race ends — an alarm nobody is waiting on would
+      still fire, and firing is what raises the work's signal, so a work that answered in time would
+      be told its run was over minutes later.
+
+      **`parcel.signal` stays unused and its reasoning stays verbatim.** This is a second signal,
+      this service's own, whose firing condition this file states.
+
+      **What it guarantees**: a work is *told*, before the row is settled, that its run went past the
+      limit, as a real `AbortSignal` it can hand to a fetch or a provider client; a work that
+      answered in time is never handed a raised one; and no path out of the race leaves a timer
+      behind.
+
+      **What it does not guarantee**: that any work stops. A work that ignores the signal keeps
+      running and keeps its slot. What changed is that this is now the work's choice rather than its
+      only option — and no docblock claims the slot is freed.
+
+      **What it makes somebody else's**: `#asset-media-extraction`'s `executeAiRunWork()`, the first
+      concrete one, must honour the signal in the calls it makes and ask it before writing into the
+      run's workspace. `#media-fetch`'s checkpoint 7 finding is now **closable but not closed**.
+
+      **And the use case is still ahead of what any base class can deliver**, which is worth a spec
+      decision rather than another round of code: §11 asks for a run that stops "instead of holding a
+      worker indefinitely", and the only mechanism that truly frees the slot is killing the worker
+      process — which would take the daemon's other in-flight runs with it. Either the wording
+      becomes what the system keeps ("the run stops being waited on, and its work is told to stop"),
+      or a second mechanism is designed. **Left open for that reason**, not because the channel is
+      missing.
+
+
+## Q114 — three fixture files tell two incompatible stories about one run
+
+- category: contradiction
+- blocking: no
+- raised by: the fixture-enrichment pass after checkpoint 6 of `#run-delivery`
+
+Run `10010009` is described three ways and two of them cannot both be true:
+
+| file | what it says |
+| :-- | :-- |
+| `development/*-ai_runs.cjs` | `failure_reason_code: 'PROVIDER_CALL_FAILED'` — the provider errored or declined |
+| `development/*-ai_run_media.cjs` | `byte_size: 20971521` against a 10485760 cap, `fetched_at: null`, and the comment *"over the 10 MB cap, so nothing was fetched and nothing was sent"* |
+| `development/*-ai_model_calls.cjs` | a model call with a `response_body`, and the comment *"failed on its provider, and the call that errored is still a call it made"* |
+
+**A run cannot have sent nothing and also have made a model call.** Verified by reading all three rows
+rather than taken on report.
+
+- [ ] open
+      **Where it came from.** `#media-fetch`'s seeder needed an over-cap medium as a fixture for the
+      byte-cap check, and **no run carried `MEDIA_LIMIT_EXCEEDED`** to hang it on — only two of the
+      seven reason codes have a seeded row at all (`MEDIA_UNREADABLE` on `10010005`,
+      `PROVIDER_CALL_FAILED` on `10010009`). So the medium was attached to the nearest failed run,
+      which already had a different story. The model-call seeder then read that run's code at face
+      value and wrote a third.
+
+      **Why it matters beyond tidiness.** No test cross-checks the three, so nothing is red today.
+      That is exactly what makes it corrosive: a fixture set that disagrees with itself stops being
+      evidence, and each later feature reads whichever file it happens to open.
+
+      **The resolution that loses nothing**: add one failed run under `MEDIA_LIMIT_EXCEEDED` carrying
+      `{ limitName: 'mediaByteSize', limitValue: 10485760, declaredValue: 20971521 }`, move the
+      over-cap medium onto it, and give `10010009` a medium consistent with having reached a
+      provider. That also closes §12's sixth criterion, whose "and its parameters" half is today
+      backed only by a hand-written entity — `MEDIA_LIMIT_EXCEEDED` is the one code of the seven that
+      carries parameters at all.
+
+      **The resolution that loses something**, and was rejected: flipping `10010009` to
+      `MEDIA_LIMIT_EXCEEDED` needs no new row, but leaves `PROVIDER_CALL_FAILED` with no seeded run.
+
+      **The id question, answered rather than left as an objection**: the new row goes in the
+      `ai_runs` seeder's own block. A prefix governs who may mint an id; a table's rows live in the
+      block of the seeder that owns that table, so adding a row to a seeder is that seeder's block by
+      definition. Filling a column of a row that already exists mints nothing and was never the issue.
+
+
+## Q115 — a fetched file is never checked against what it claims to be, and the acceptance was never recorded
+
+- category: design
+- blocking: no
+- raised by: checkpoint 8, round 3, of `#media-fetch`
+
+`MediaFetchClient#extractResponseMimeType()` carries the server's `content-type` through unverified,
+and the bytes are then written to disk and handed to a provider. **There is no magic-byte check
+anywhere.** A body declared `image/jpeg` that is an archive, an SVG or a polyglot reaches a provider
+declared as a photograph.
+
+Under the audit skill's own upload criteria — size validated, declared type trusted, no content check
+— that is a MEDIUM.
+
+- [ ] open
+      **The decision itself is sound and is not being reopened.** §18 asks for no content check and
+      names no set of formats to check against, and `ai_run_media.mime_type` is specified as borrowed
+      verbatim from the standard — that is, the caller's claim. Adding a sniffer would decide which
+      files this service refuses, which is a spec decision and not an audit fix.
+
+      **The finding is that nobody recorded it.** Rounds 1 and 2 both saw the paragraph in the class
+      docblock and both passed over it; the acceptance lived in a comment in the source and in two
+      agent reports, and in no place a later reader of `.hora/` would find it. Checkpoint 8 requires
+      a finding to be fixed **or explicitly accepted and recorded**, and only the first half of the
+      second option had happened. **That is my omission, not an agent's** — I read three audit reports
+      naming it and recorded the spec silences around it while leaving this one in prose.
+
+      **What closing it looks like:** §18 gains a criterion naming the formats this service accepts,
+      or states that the declared type is the caller's claim and is carried through deliberately.
+      Either is a `/hora-spec` edit. Until then this entry is the record.
+
+      Related: [[Q104]], where a required behaviour has no criterion standing over it, is the same
+      shape one level up — a decision that is real in the code and absent from what the gate checks.
+
+
+## Q116 — "retried until it lands" names no bound, and a queue needs a number
+
+- category: undefined-detail
+- blocking: no
+- raised by: checkpoint 7 of `#run-delivery`
+
+§12's eighth criterion says a callback that fails to deliver **is retried**. Nothing in §12 or in
+`.hora/contracts/1.0.0/client-api.md` states an attempt count, a backoff, or what a client should
+expect once the attempts are spent.
+
+- [ ] open
+      **The reading taken**: seven attempts on an exponential backoff from one minute — roughly an
+      hour of trying. Argued from §7's "an hour's outage is tolerable" and from §12's own
+      reconciliation use case, which says the read-back is the route for a client that missed a
+      callback. Past the last attempt, that read-back is what remains.
+
+      **The number is asserted as a whole option hash**, the same way `#run-execution` asserts its
+      own `attempts: 1`, so it cannot drift silently — but it is this implementation's reading and
+      not something the spec states.
+
+      **Worth settling**, because a client integrating against this service has to know how long to
+      wait before falling back to polling, and today that answer exists only in a dispatcher.
+
+## Q117 — a client that refuses is retried exactly like a client that is down
+
+- category: undefined-detail
+- blocking: no
+- raised by: checkpoint 7 of `#run-delivery`
+
+§12 says a callback is retried until it lands and **draws no line between a far side that is
+unreachable and one that answers "no"**. So a `404` or a `410` from a registered callback URL is
+retried on the same schedule as a `503`.
+
+- [ ] open
+      **Anything that is not a `2xx` counts as not landed**, deliberately — deciding otherwise would
+      be this service inventing a rule the spec does not give it. A `4xx` is retried.
+
+      **What it costs**: a client that has permanently removed an endpoint is called seven times over
+      an hour for every settled run, and the delivery table fills with attempts that could never have
+      landed.
+
+      **If a permanent refusal is meant to stop the retrying, the spec has to say so** — and say which
+      statuses count as permanent, because that is the part an implementation must not guess.
+
+## Q118 — the job daemon now needs Redis at boot, where it needed nothing before
+
+- category: design
+- blocking: no
+- raised by: checkpoint 7 of `#run-delivery`
+
+`app/jobs/` held only its keep-file, so the daemon's folder scan bound **no queue** and the process
+started against nothing. `app/jobs/deliver-run-callback/` is the first real job, so from its next
+start the daemon opens a live BullMQ Worker — and therefore needs Redis reachable to start at all.
+
+- [ ] open
+      **This is the intended state, not a regression** — a daemon that listens to nothing is the
+      thing [[Q89]] has been recording as un-observable. It is recorded because it changes what a
+      deployment must have running before the worker process is considered healthy, and nothing in
+      §11, §12 or §23 says so.
+
+      **What it does not close**: [[Q89]] itself. §11's second criterion is about *a run's* job
+      surviving a restart, and this is a *callback* job. The daemon-plus-durable-queue mechanism
+      becomes observable for the first time; the run job §11 speaks of is still
+      `#asset-media-extraction`'s to supply.
+
+
+## Q119 — an outbound callback's signature is a valid inbound request's signature
+
+- category: design
+- blocking: no
+- raised by: checkpoint 8, round 1, of `#run-delivery`
+
+`AiRunCallbackSigner` builds its payload and its digest through the **same** class that verifies an
+inbound request. That borrowing is right — a second implementation would be self-consistent and
+neither side would catch the drift — and it is argued for in the signer's own docblock.
+
+**The consequence is not stated anywhere.** A `(timestamp, body, signature)` triple this service
+*produces* on an outbound callback is a valid triple for an *inbound* request under the same secret,
+inside the 300-second window. **No byte distinguishes the direction.**
+
+- [ ] open
+      **What limits it today is an accident, not a guard.** The signature binds that exact body, and
+      a callback's body is a run-response JSON: no route accepts it — the run-creating POST's
+      validator refuses it, and a GET carries no body so its raw body reads as unsigned. So the
+      protection is that the body happens not to parse as a request, which is not a property anybody
+      chose and not one a later route is obliged to preserve.
+
+      **It becomes material together with [[Q120]]**: a third party that receives a redirected
+      callback holds a validly signed credential of that client's.
+
+      **The fix is a contract change and belongs to `#run-contract`**, not here: a direction constant
+      inside the signed payload, or a header of its own. Recorded rather than taken, because
+      changing what is signed changes what every existing client must compute.
+
+## Q120 — the registered prefix is the only thing bounding where a callback goes
+
+- category: undefined-detail
+- blocking: no
+- raised by: checkpoint 8, round 1, of `#run-delivery`
+
+§12 says a callback is refused "unless its URL starts with" the client's registered prefix, and
+**that is the whole of what the spec asks.** Three consequences follow, none of which the spec
+addresses:
+
+- **`http:` is allowed unconditionally.** Nothing forces a production deployment to register only
+  `https:` prefixes, so a plaintext prefix would push a run's result — which §7 classes as personal
+  data at its highest level — over the wire in the clear, with nothing objecting.
+- **No private, loopback or link-local address is refused.** A prefix naming `127.0.0.1`, a
+  link-local metadata address or an internal host is perfectly valid to this check.
+- **A prefix with no trailing separator matches a sibling host.** A registered
+  `https://client.example` (written without the trailing slash, which is natural) matches
+  `https://client.example.attacker.invalid/`. Narrowed in practice because a path-less prefix is
+  normalized to carry a trailing slash; a prefix with a partial path is the exposed shape.
+
+- [ ] open
+      **The URL checks that *are* there were tested hard and hold**: credentials before the host, a
+      scheme downgrade in the original URL, a path that normalizes out of the prefix, punycode, case,
+      default ports, and an empty or unparseable prefix refusing everything. Those are not in
+      question.
+
+      **What is in question is the spec's silence about the destination itself.** An allow-list of
+      prefixes is an allow-list of *strings*; it says nothing about what the string resolves to.
+      Deciding otherwise — refusing plaintext in live, refusing private address space, requiring a
+      prefix to end at a path separator — is policy this service would be inventing.
+
+      Worth settling in §12 before a deployment discovers it. Related to [[Q119]] and to the redirect
+      defect that made this audit round find it.
+
+
+## Q121 — video and audio must end differently, and the built check cannot tell them apart
+
+- category: contradiction
+- blocking: no
+- raised by: checkpoint 1 of `#asset-media-extraction`
+
+§20 asks for two different endings for the two kinds this version does not handle:
+
+- *"a video URL among the media is **refused** with the unsupported reason code, rather than being
+  silently skipped"*
+- *"**audio** among the media is **ignored**"*
+
+`#media-fetch` built the distinction as `is_active` on `ai_run_media_categories`, and
+`AiRunMediaCategoryInspector` reads that flag. **It is `false` for both video and audio**, so the
+check answers the same for each — verified by reading the inspector and the master seeder.
+
+**Refused, ignored and handled are three outcomes. A boolean carries two.**
+
+- [ ] open
+      The flag was the right shape for the question `#media-fetch` was asked ([[Q94]]): §18 says the
+      two unhandled kinds exist "so a request naming one is refused by name rather than ignored",
+      which reads as one behaviour for both. §20 then asks for two.
+
+      **The two sections disagree, and §18 is the one already built.** §18's wording even contains
+      the word §20 uses for audio — "rather than ignored" — so the collision is not a subtlety.
+
+      **What closing it looks like:** the master gains a column naming what this version does with a
+      kind (handle / refuse / ignore) and the inspector reads that instead of a boolean, which keeps
+      the property [[Q94]] was for — a fourth kind is a row, not a code change. The alternative is
+      §20 dropping one of its two criteria.
+
+- [x] settled at checkpoint 3 of `#asset-media-extraction`
+      `is_active` is **replaced**, not joined: `ai_run_media_categories` carries `handling_name`,
+      one of three words held in `AI_RUN_MEDIA_HANDLING` — `handle`, `refuse`, `ignore`. Image
+      handles, video refuses, audio ignores.
+
+      **Why the endings are a constant vocabulary and not a fourth master table**, which is the part
+      worth keeping: a fourth *kind* is a row because the service already knows all three things it
+      might do with one, while a fourth *handling* is a branch of behaviour that does not exist until
+      code implements it — seeding one would promise an ending nothing could carry out. So kinds stay
+      data and endings stay code, and [[Q94]]'s property is intact.
+
+      **Why replaced rather than kept alongside:** two columns able to disagree — a kind marked
+      inactive and handled — cost a reader more than the missing third state did, and would need a
+      rule about which wins. This master is also the one whose `is_active` never carried the
+      column's usual meaning: every kind seeded here is one a caller may legitimately name, video
+      and audio included, since being namable is the whole reason their rows exist.
+
+      **The costs, named rather than discovered later:** this master is now the only one without
+      `is_active`, diverging from its siblings' standard column set; a kind can no longer be
+      withdrawn by a flag, and removing the row instead gives a caller "unrecognized value" rather
+      than "a kind we know and do not handle"; and the migration's `down` restores the column
+      without its per-row values, because the seeder supplied them.
+
+      **What is still open is §18's own sentence.** It reads "refused by name rather than ignored",
+      which describes one behaviour for both kinds and is now narrower than what the schema does.
+      Nothing in code depends on it. Whether it is amended is `/hora-spec`'s.
+
+- [ ] open — §18's wording
+
+      **Where it bites:** `#asset-media-extraction`'s step 2 has to act on the difference, and the
+      only thing it can ask today answers one word for both. This needs deciding before that step is
+      written, not after.
+
+## Q122 — rate limiting is asked for once, in one criterion, and nothing anywhere implements it
+
+- category: undefined-detail
+- blocking: no
+- raised by: checkpoint 1 of `#asset-media-extraction`
+
+§20's last criterion: *"a client that has exceeded its rate limit is refused, and no run is created
+and no model is called."* Searching the whole of `specs/1.0.0/spec.md` for "rate limit" returns
+**that line and nothing else**.
+
+`express-rate-limit` is a dependency in `package.json` and **no limiter is wired anywhere** — a grep
+over `server/` and `app/` finds no call site. A previous audit round noted the same absence from the
+other direction.
+
+- [ ] open
+      **So this feature owns a criterion whose subject does not exist yet**, and the spec gives it
+      nothing to build against: no window, no count, no per-client or per-route scope, no answer for
+      what a refused caller is told, and no statement of whether the limit belongs to this route or
+      to every run-creating route.
+
+      **The criterion is specific about one thing and it is the part that matters**: the refusal
+      happens *before* a run is created and *before* a model is called. That rules out limiting
+      inside the job and places it at the request, which is where the dependency already sits unused.
+
+      **Worth settling before checkpoint 5**, because "the client's rate limit" implies a figure
+      stored per client — and `api_clients` carries no such column, so either the limit is one
+      figure for everyone, or this is also a schema change.
+
+- [x] the premise was wrong, and the error was in the reading, not the spec
+      **§7's non-functional table carries a `Rate limiting` row, and it always did** (line 227):
+      *"the run-creating request is limited per client. The idempotency key stops a repeat of the
+      same request; it does nothing about a thousand different ones, and each run costs three model
+      readings."* The search that produced "that line and nothing else" was case-sensitive and the
+      heading reads `Rate limiting`, so it matched `rate limit` at §20 and missed this one.
+
+      **What the row settles is most of what the question asked for.** The scope is the
+      run-creating request, per client — not per route and not inside the job. The rationale names
+      the cost being defended: three model readings per run. Both were written down before the
+      question claimed they were missing.
+
+      **What it does not settle is the figure**, and checkpoint 6 chose `60` runs per `60` seconds
+      as constants rather than environment values, counted over `ai_runs` rows accepted for that
+      client with the window bounded at both ends. `api_clients` still carries no per-client column,
+      so this is one figure for everyone until a spec change says otherwise — which is the third of
+      the question's three possibilities, taken deliberately rather than by default.
+
+      **The ordering the row implies is not the ordering that was built**, and that is recorded
+      separately as [[Q128]] rather than folded in here.
+
+
+## Q123 — three shapes the request and the result never declare
+
+- category: undefined-detail
+- blocking: no
+- raised by: checkpoint 3 of `#asset-media-extraction`
+
+§20 and `.hora/contracts/1.0.0/client-api.md` leave three shapes unstated, and all three reach a
+client:
+
+- **`asset.province`** — declared as "the category slugs and the province". Nothing says whether a
+  province is a name, a code or a slug. Typed `string`.
+- **A field result's `value`** — typed `string | number`, because a number field answers a number
+  and a text or select field answers a string. Nothing states it; step 4 bounds it either way.
+- **`suggestionConfidence`'s range** — 0–1 or 0–100. Nothing says.
+
+- [ ] open
+      **The province is the one that bites silently.** A client integrating against the wrong reading
+      sends something this service accepts and neither side notices until the values come back wrong.
+      Checkpoint 4's stub has to pick one, and whatever it picks becomes what a client builds against
+      before checkpoint 6 exists.
+
+      **The confidence range matters at checkpoint 5**, where the formula is written and versioned
+      ([[Q92]] already records that the version is per settled field). A formula versioned against one
+      range and read against the other is a defect that survives a version bump.
+
+## Q124 — the accepted response is declared as five statuses, and the contract says one
+
+- category: contradiction
+- blocking: no
+- raised by: checkpoint 3 of `#asset-media-extraction`
+
+`.hora/contracts/1.0.0/client-api.md` describes `AiRunAcceptedResponse`'s `statusName` as
+"(always `queued`)" in its shape section, and four sections later says a repeated request answers
+`202` "carrying that run's status as it now stands". **Those cannot both be true**, and the built
+`BaseAiRunPostRenderer#buildRepeatedRunResponse()` passes `aiRun.AiRunStatus.name` — whatever it is.
+
+- [ ] open
+      The type follows the shipped code and the repeat row: the five-status union. Declaring
+      `'queued'` alone would be a lie about code that already runs.
+
+      **If the contract is to be tightened, the shape section is the line to reword, not the code** —
+      a client that repeats an idempotency key after its run has finished gets a real status, and
+      that is the useful behaviour.
+
+
+## Q125 — the fetch budget is a paragraph, and the caller that must read it does not exist
+
+- category: design
+- blocking: no
+- raised by: checkpoint 8, round 6, of `#media-fetch`
+
+`DEFAULT_REQUEST_TIMEOUT_MILLISECONDS` is 30000 and the run's limit is 300000, with a cap of twelve
+media. **12 × 30000 = 360000.** Twelve slow-but-not-stalled fetches overrun the whole run budget by
+sixty seconds, before the upload and three readings.
+
+The constant was justified by arithmetic that did not work, and the justification is now correct: the
+bound buys **a named failure in place of an unnamed one** — a stalled host becomes
+`MEDIA_FETCH_FAILED` against a nameable medium rather than an unnamed `TIME_LIMIT_EXCEEDED` — and it
+explicitly does **not** bound the run.
+
+- [ ] open
+      **Two alternatives were weighed and both refused**, which is why this is a question rather than
+      a fix. Tightening the bound to fit twelve inside the budget needs 20 s or less, which demands
+      512 KB/s and would refuse an honest slow transfer of a file this service accepts — arriving as
+      `MEDIA_FETCH_FAILED` with nothing naming the speed. Mandating concurrency would assemble up to
+      twelve 10 MB bodies at once, which is the exhaustion the same class's comment argues against
+      two paragraphs earlier, reached from the other side.
+
+      **What is handed forward is weaker than the rest of that checkpoint**: nothing asserts the
+      overrun and nothing makes a caller ration. The caller is `#asset-media-extraction`'s step 2,
+      and it can still fetch twelve sequentially and produce exactly the unnamed
+      `TIME_LIMIT_EXCEEDED` this finding is about, with nothing red to say so.
+
+      **So it is written here rather than left in the file.** Whoever builds that step needs it as an
+      input, not as a comment they may or may not open. The spec is silent on whether a run's media
+      are fetched sequentially or concurrently, and that silence is what the caller has to resolve.
+
+- [x] answered at checkpoint 5 of `#asset-media-extraction`
+      **Sequential, with a budget the collector spends down** — one of the three shapes this question
+      laid out, and the one that avoids the memory cost the other would have bought. `AiRunMediaCollector`
+      carries a `mediaBudgetMilliseconds` and hands each fetch what is left of it.
+
+      **What makes it honest rather than merely bounded**: a medium the budget never reached is still
+      named in the collection. A run that gave up halfway says which files it did not fetch, so a
+      caller can tell that apart from a file that was fetched and could not be read — which is the
+      distinction §18's fourth criterion exists to make.
+
+      **The residual the question named is closed for this caller and not in general**: nothing
+      asserts the arithmetic, and a second caller built later could still fetch twelve sequentially
+      at the full per-fetch bound. The paragraph in `MediaFetchClient` remains the only thing saying
+      so.
+
+## Q126 — two classes now duplicate a redirect-following tool three times over
+
+- category: design
+- blocking: no
+- raised by: checkpoint 8, round 6, of `#media-fetch`
+
+`MediaFetchClient` and `AiRunCallbackSender` now hold the same thing three times: the
+`redirect: 'manual'` hand-written hop walk, the response-body disposal, and the blank-`location`
+guard. Each duplication was the right call in its round — the second and third exist **because** a
+lesson had failed to travel between the two files, twice, in both directions.
+
+- [ ] open
+      **The duplication is not the defect; it is the symptom.** Twice now a fix landed in one class
+      and the identical defect sat in the other until an audit found it. A shared tool would make the
+      lesson travel by construction.
+
+      **What makes it non-trivial:** the two ask different per-hop questions — one a host allow-list,
+      one a client's registered URL prefix — so a shared walk has to be parameterized on the only
+      interesting part, and the two classes' failure vocabularies differ.
+
+      **Worth deciding at a later checkpoint, not retrofitted now.** Both are under audit closure and
+      both are correct; a refactor of two audited classes buys structure at the price of re-opening
+      what six and three rounds established.
+
+- [x] accepted as duplication for 1.0.0, with a named trigger rather than a deferral
+      **"A later checkpoint" does not exist in this version.** Both features reached their last gate
+      with no checkpoint owning either class, so leaving this `open` would have meant deferring it
+      by drift rather than deciding it.
+
+      **The decision is to keep both copies, and the reason is where these two classes sit.** Both
+      of this version's HIGH findings were in exactly this code, one per class, and both were the
+      same defect family. A shared walk extracted at the last gate would re-open the two files six
+      and three audit rounds just closed, and it would do so in the one place where a mistake is
+      not a defect but an exposure.
+
+      **What is accepted is the duplication, not the failure mode.** The symptom this question
+      names is real and measured: twice a fix landed in one class while the identical defect sat in
+      the other. Nothing above makes that less likely.
+
+      **The trigger, so the next occasion is not another audit round**: a third caller needing
+      redirect-following, or a fix landing in either class again. Whichever comes first is when the
+      shared tool gets written, and it is 1.1.0 work.
+
+      **The cheapest thing that would make the lesson travel is additive, and it was not done here
+      because it is scope this version did not ask for.** A parity describe — both classes put
+      through the same redirect scenarios in one file — fails the moment one is fixed and the other
+      is not, and it changes neither audited class, which is what [[charter principle 3]] prefers.
+      Two of the three behaviours take it cleanly: a redirect to a target the per-hop question
+      rejects, and a blank `Location`. **The third does not**: response disposal has no clean
+      assertion, and an earlier round of this same audit produced a claim about release paths that
+      a probe then disproved. Writing a parity test that pretends to cover disposal would repeat
+      that mistake, so it would cover two of three and say so.
+
+
+## Q127 — two counts inside one object had four spellings, and one route answered both
+
+- category: contradiction
+- blocking: no
+- raised by: checkpoint 4 of `#asset-media-extraction`
+
+`agreement` carries how many readings agreed out of how many. It was spelled four ways:
+
+| where | spelling |
+| :-- | :-- |
+| `types/restfulapi/assetMediaExtractionResult.d.ts` (checkpoint 3) | `agreedCount` / `readingCount` |
+| `ai_run_field_outcomes`, the columns | `agreed_reading_count` / `total_reading_count` |
+| the development seeder's specimen result body | `agreedReadingCount` / `totalReadingCount` |
+| `#run-delivery`'s GET stub, before it was replaced | the seeder's |
+
+**The contract fixes no key names at all**, so this was a repository inconsistency rather than drift.
+
+- [x] settled in the main session at checkpoint 4
+      **The consequence was live, not theoretical**: `GET /v1/ai-runs/:runKey` would have answered
+      `agreedReadingCount` for the seeded run and `agreedCount` for any run the stub created — **from
+      the same route**, with the difference visible only to a client that happened to read both.
+
+      **The columns won**, being what the real renderer will read from and the one spelling three of
+      the four already agreed on. The type was corrected, and the stub, and both of its test files.
+
+      **Worth naming why it was found here.** Three checkpoints had written against one spelling or
+      the other without either noticing; the stub found it because it was the first thing to answer a
+      result body on the same route as the fixtures. That is what a stub is for, and it is a better
+      argument for the stub going as far as it did than any principle.
+
+      **Still open in the contract**: it names the field and not its keys. Worth a line there, since
+      a client generates from it.
+
+
+## Q128 — the rate check runs before the idempotency lookup, so a repeat is refused along with the rest
+
+- category: undefined-detail
+- blocking: no
+- raised by: checkpoint 6 of `#asset-media-extraction`
+
+`AssetMediaExtractionPostRenderer` overrides `render()`, asks `AiRunRateLimitInspector` first, and
+calls `super.render()` only when the client is under its limit. The idempotency lookup lives in
+`BaseAiRunPostRenderer#renderAcceptedRun()`, after validation — so a client over its limit that
+retries **a key already stored** is answered `429` instead of the run that key names.
+
+- [ ] open
+      **§20's criterion is met either way, which is why this is not a defect.** It asks that an
+      over-limit client be refused with no run created and no model called. A repeat creates no run
+      under either ordering, so both orderings satisfy it.
+
+      **What the two orderings disagree with is §7's sentence, not the criterion**: *"the idempotency
+      key stops a repeat of the same request; it does nothing about a thousand different ones, and
+      each run costs three model readings."* Read plainly, the limit exists to defend model
+      readings, and a repeat of a stored key costs none. Refusing it denies a client the answer to
+      work it has already been charged for.
+
+      **The cost of the current ordering is bounded**: the client retries after its window clears
+      and gets the original run. Nothing is lost, and the answer is delayed.
+
+      **The fix is not this checkpoint's to make.** Putting the check behind the lookup means a
+      `refuseBeforeAcceptance({ context })` hook on `BaseAiRunPostRenderer`, which three features'
+      run-creating routes sit on. A subclass's checkpoint changing a shared base is how one feature
+      silently alters another's refusal order, so it is recorded here for the checkpoint that owns
+      that base class.
+
+      **The contract states the built ordering rather than the preferred one** — the `429` row in
+      `.hora/contracts/1.0.0/client-api.md` says a stored key is refused too while the window is
+      full. A contract describing the behaviour somebody intends is worth nothing to a client
+      integrating against the behaviour that ships.
+
+
+## Q129 — an accepted feature shipped code that could not run, and four gates did not notice
+
+- category: process
+- blocking: no
+- raised by: checkpoint 7 of `#asset-media-extraction`
+
+Building the job revealed that two master tables the run's own code reads had **never been seeded
+by any feature**:
+
+- `ai_agent_default_models` — seeded nowhere. `#provider-layer` installed `ai_agents`, both
+  instruction tables, their backup sinks and the `stub` model, but not the row binding the agent to
+  a model. Without it no driver resolves and every run fails before step 3.
+- `ai_tools` / `ai_agent_available_ai_tools` for the shipped agent — `constants/assetMediaExtractionToolConstants.cjs`
+  says in as many words that its values are "the baseline a seeder puts into `ai_tools`", and no
+  seeder did. The only rows that existed were `#provider-layer`'s `development` fixtures, which
+  their own seeder says are deliberately fake. Without the master rows `AssetMediaReadingFetcher`
+  refuses every run for offering no reading tool.
+
+Both were confirmed against the committed tree before the fix: `git grep ai_agent_default_models`
+over `sequelize/seeders/` at `HEAD` returned nothing at all.
+
+- [ ] open
+      **The defect is closed and the process question is not.** Checkpoint 7 added both as master
+      seeders with `dev-master/` re-exports, and `AiAgentModelBindingFinder`'s test now fails loudly
+      if either is missing. What stays open is that `#provider-layer` **passed all eighteen gates,
+      including acceptance**, holding code that could not execute.
+
+      **Why nothing caught it.** Every test that touched the agent either mocked the binding or used
+      the `development` fixtures, so the master path had no exercise. Nothing in the unit suites
+      asks whether the rows a class reads at run time exist in the seeders that ship. The first
+      thing to run the path end to end was this checkpoint, three features later.
+
+      **This is the same shape as the barrel gap recorded at checkpoint 5** — work that existed and
+      was never executed, passing because nothing ran it — and it is the second instance. The first
+      cost twenty-five unrun tests; this one cost an accepted feature that could not serve a request.
+
+      **What would have caught it is not more unit tests.** A run exercised against the master
+      seeders alone — the set that actually ships — is what distinguishes a class whose fixtures
+      exist from a service whose data does. Whether that belongs in a gate or in the acceptance
+      sweep is the question.
+
+      **A harder fact, found when the seeders landed and two tests went red.** The gap was not
+      merely unnoticed. `tests/__tests__/app/aiAgent/AiAgentPromptComposer.js` held two assertions
+      that the shipped agent has no tool — `#findAvailableAiTools()` under a describe named
+      `'should be empty'`, and `#composePrompt()` expecting `toolSchemas: []` — and each carried a
+      comment stating it as a property of the release: *"the service agent has no tool bound to it
+      this version"* and *"no tool is bound to the service agent this version"*.
+
+      **So somebody looked straight at the empty result and wrote it down as the design.** A run
+      whose agent offers no reading tool is refused outright by `AssetMediaReadingFetcher` — the
+      message is `'refused a run whose agent offers no reading tool'` — so what those two tests
+      pinned was a state in which the feature cannot serve one request. Both are corrected: the
+      emptiness case is replaced by the binding the agent now carries, and the prompt's expectation
+      asserts the bound tool by name.
+
+      **This is the version's dominant defect family, one level up.** Every round of this feature's
+      audits turned up a sentence stating something the code does not do; here the sentence was in
+      a test, which is the one place a false statement is also a passing check. A test that
+      canonises a gap does not merely fail to catch it — it defends it against the next reader.
+
+      **A third instance, found at checkpoint 9 and worse than the first two.** A run on the
+      keyless driver settled no fields at all, because `StubAiModelProcessor#buildFunctionCall()`
+      answers `arguments: {}` — correctly, by its own design. What let that reach checkpoint 9 is
+      that **no test in the repository exercised step 3 on that driver at all**: every case that
+      reached the reading step stood the reading step in, each for its own good local reason. The
+      path with the only driver a default installation runs on had no coverage, so checkpoint 5
+      passed over it and checkpoint 6's criteria map did too.
+
+      **The main session's own first exhibit for this was wrong**, and the correction is the point.
+      It cited a settled run with an empty body as proof the driver answered nothing; that case
+      stands in the fetcher deliberately, for a question about audio, and says so in its own
+      comment. The conclusion held and the evidence did not — which is the same error as trusting a
+      green suite: a result that agrees with the diagnosis is not the same as a result that tests
+      it.
+
+      **What the three instances share is not carelessness.** A barrel nobody imported, a seeder
+      nobody wrote, and a path every test stood in for: in each, something existed, nothing ran it,
+      and every signal available said green. Unit counts, lint and a passing suite are all blind to
+      it by construction.
+
+
+## Q130 — fetched media is trusted to be what its `content-type` says it is
+
+- category: security
+- blocking: no
+- raised by: checkpoint 8 of `#asset-media-extraction`
+
+`MediaFetchClient#extractResponseMimeType()` returns the remote host's own header verbatim, and that
+value becomes `AiRunMediumOutcome.mimeType` and then the `fileType` of the file handed to the
+provider driver. **No byte of the file is ever read to check it.** Two of the three layers the audit
+asks for are present and the third is not:
+
+- **size cap — present, at both ends.** The caller's declared byte size is refused before a fetch,
+  and the bytes actually received are bounded while the stream is read.
+- **declared-type allow-list — partial.** `ai_run_media_categories.handling_name` decides on the
+  category the **caller declared**, not on what the file is.
+- **content / magic-byte check — absent.**
+
+- [x] accepted for 1.0.0, recorded with the trigger that makes it live
+      **It is not exploitable in this version, and the reason is specific rather than hopeful.** The
+      only model driver that exists is `StubAiModelProcessor`, and `BaseAiModelProcessor#prepareAttachedFiles()`
+      returns the file list unchanged — verified by reading both. So no byte leaves the machine, no
+      byte is parsed, and `provider_uploaded_files` takes no row. What a mislabelled file reaches
+      today is a stub that digests a path string.
+
+      **The fix is a spec decision before it is an implementation.** Refusing a file means naming
+      which formats this service accepts, and that is not an implementer's choice to make inside a
+      media step. `MediaFetchClient`'s own class docblock already says exactly this and routes it to
+      the spec, which is why it is accepted here rather than improvised.
+
+      **The trigger is the arrival of a real provider driver**, not a date. `AiRunMediaProviderUploader#hasLeftTheMachine()`
+      is the seam: the moment that can answer true for a file, a mislabelled archive or polyglot is
+      being handed to somebody else's parser under a caller-supplied label. Whoever adds the first
+      real driver adds the check, and the format list the spec names, in the same change.
+
+      **What an attacker would need even then**: valid HMAC credentials and an object hosted on a
+      host already in `MEDIA_FETCH_ALLOWED_HOSTS`. This is not an unauthenticated path.
+
+
+## Q131 — the rate limit counts and then acts, so one burst per window gets through
+
+- category: security
+- blocking: no
+- raised by: checkpoint 8 of `#asset-media-extraction`
+
+`AssetMediaExtractionPostRenderer#render()` asks `AiRunRateLimitInspector` for the client's accepted
+run count and only then calls `super.render()`, which commits the new row. There is no lock, no
+unique constraint and no reservation across that gap, so N requests arriving from one client inside
+the same tick all read the same pre-burst count and all pass.
+
+- [x] accepted for 1.0.0, and it belongs with [[Q128]] rather than alone
+      **Two halves of the same question were checked and both hold.** The inspector counts what it
+      claims to count — `ai_runs` rows whose `acceptedAt` falls in the window, written from
+      `context.now`, with one code path creating a run. And `context.now` is **not** caller
+      controlled: `AppRestfulApiContext` defaults `requestedAt = new Date()`, the server's own
+      clock, and the client's timestamp header feeds only the freshness and signature checks. Had
+      that header reached the count, this would be a HIGH rather than a LOW.
+
+      **Why it is accepted.** It needs valid credentials, so it is not an unauthenticated bypass;
+      the sustained rate still converges, because once the burst commits every later request sees a
+      count over the limit for the rest of the window; and the amplification happens once per
+      window rather than accumulating. §20's criterion — *a client that has exceeded its rate limit
+      is refused* — is true of the state after exceeding, which is the state the criterion names.
+
+      **It is recorded beside [[Q128]] on purpose.** That question asks whether the check belongs
+      before or after the idempotency lookup; this one asks whether the check is atomic. Both are
+      about the same few lines, and whoever opens them should see both — a reservation built while
+      the ordering is still undecided would be built twice.
+
+      **The shape of the fix, for whoever takes it**: an atomic reservation — insert and count
+      inside one transaction, or a store-side counter with the window as its lifetime.
+
+
+## Q132 — `.env.development` and `.env.live` are tracked in a public repository
+
+- category: security
+- blocking: no
+- raised by: checkpoint 8 of `#asset-media-extraction`, out of that feature's scope
+
+Both files are tracked, and `.gitignore` carries a bare `.env` line that matches neither. Neither
+file is in this feature's change set and both predate it, so this is the version sweep's rather
+than this gate's.
+
+- [ ] open
+      **The values are development fixtures, and the file says so itself.** The development client's
+      secret is kept in the clear beside the key it is encrypted under, because the seeder and the
+      signing tests need the same value; `.env.live` carries the same keys with every value empty,
+      which is a template. Nothing read looks like a live credential.
+
+      **What is worth deciding is the pattern, not these two files.** A bare `.env` ignore beside
+      two deliberately tracked variants means the next `.env.*` somebody adds is tracked by default
+      in a repository that is public. Untracking these two would break the tests that read them, so
+      the answer is a narrower ignore plus an explicit exception, not a removal.
+
+
+## Q133 — §20 states the reason's language twice, and the two statements differ
+
+- category: contradiction
+- blocking: no
+- raised by: checkpoint 9 of `#asset-media-extraction`
+
+Two lines of `specs/1.0.0/spec.md` say what language a suggested field's `reason` is written in:
+
+- line 861, §20's own prose: *"Values and reasons are written in **the language the asset owner
+  reads**."*
+- line 877, §20's first use case: *"gets back a value per field with a confidence, a one-line reason
+  **in Vietnamese**, and which photos each value came from"*
+
+The built system follows the first, verbatim and in two places: the seeded agent instruction says
+*"Write that sentence in the language the asset owner reads"*, and the tool schema's own field
+description repeats it. **Nothing anywhere pins Vietnamese**, and `reason` is passed through from
+whatever the model answered, so the language of what a client receives is a property of the prompt
+rather than of this service.
+
+- [ ] open
+      **Neither statement is wrong on its own, and that is the difficulty.** Line 861 reads like a
+      deliberate refusal to hard-code one language into a service that holds prompts as data —
+      line 698 says ORT changes the Vietnamese wording a service sends *"without deploying
+      anything, because prompts are data rather than code"*. Line 877 reads like a statement of
+      what today's client will actually receive.
+
+      **They are consistent only if "the asset owner reads Vietnamese" is a fact about this
+      version's clients**, and nothing in the spec says so. A client integrating on line 877 and an
+      operator editing the prompt against line 861 can both be satisfied and still disagree about
+      what arrives.
+
+      **It is not what failed checkpoint 9** — the use case failed on demonstrability, not on
+      language — and it is not blocking, because the prompt is data and an operator who wants
+      Vietnamese writes it today. What it needs is one sentence saying which of the two is the
+      promise.
+
+      **It reached the fixture, and the fixture answered it one way.** `StubAssetFieldReadingSupplier`
+      writes `[stub] demonstration value for <path>, supplied without a model call.` — English, and
+      marked.
+
+      **The reading behind that choice is worth keeping.** The two statements do not conflict for a
+      *model*: the model writes Vietnamese and the service writes no display wording of its own,
+      which is what line 861's second sentence says. They conflict only for a **fixture**, because
+      a fixture is the service writing something. Resolved toward "no display wording of its own":
+      a polished Vietnamese sentence on a demo screen is indistinguishable from a model's answer,
+      and is exactly the text a client ships by accident. A marked English line cannot be.
+
+      **The other reading is real** — a demo screen with English reasons shows the wrong line
+      lengths and no diacritics, so it demonstrates a layout the product will not have. If that
+      wins, the change is one template string plus the recorded reasons in three test files.
+
+      **What still needs one sentence from a person** is which of line 861 and line 877 is the
+      promise to a client. The fixture's choice does not settle that, and was not meant to.
+
+
+## Q134 — the suite no longer fits this machine's default worker count
+
+- category: lacked-environment
+- blocking: no
+- raised by: checkpoint 5 (reopened) of `#asset-media-extraction`
+
+A full run died rather than failed: **`Jest worker ran out of memory and crashed`**, with 14
+`UNKNOWN: unknown error, read` at `FileCache.readFileBuffer` beside it. Eleven suites were reported
+failed while only **one test** failed, which is the signature — ten suites never ran a test, and most
+were files no recent change had touched (`ApiClientSecretCipher`, `RevokingSessionResult`,
+`AdminGraphqlServerEngine`). The single test failure was a broken SQLite query, a consequence of the
+same collapse rather than a defect of its own.
+
+**The configuration it died under**, measured rather than assumed:
+
+| | |
+|---|---|
+| cores | 12 |
+| memory, total | 15.8 GB |
+| memory, free at the time | **4.3 GB** |
+| `maxWorkers` | not set in `jest.config.js`, so jest's default of cores − 1 = **11 workers** |
+| per-worker memory ceiling | none set |
+| suites | 102, up from 100 the previous run |
+
+- [ ] open
+      **It was settled by measurement, not by retrying.** The same tree run with
+      `--maxWorkers=4 --workerIdleMemoryLimit=512MB` passed twice: 3497 tests across 102 suites and
+      422 across 7, no crash. Eleven workers against 4.3 GB free is the whole of it — nothing was
+      skipped, loosened or deleted to get there.
+
+      **Why it is worth a record rather than a shrug.** The failure reads exactly like a real one:
+      a red suite, a named test, a SQLite error. Anyone who trusts the first screen of that output
+      will go looking for a defect in `#run-delivery`'s callback model, which is untouched and
+      fine. The next person to add a suite will meet it again, closer to the edge.
+
+      **What is not decided here is the fix**, because it is a shared setting. `maxWorkers` in
+      `jest.config.js` would cap parallelism for every machine including CI, which may have memory
+      to spare — unlike the `testTimeout` added earlier in this version, raising which cannot break
+      a passing test, capping workers trades wall-clock everywhere to fix one machine.
+      `workerIdleMemoryLimit` recycles a worker instead of capping how many there are, and is the
+      likelier answer. Either is a change to how every run of this repository behaves, so it is a
+      person's call.
+
+
+## Q135 — a default installation serves fabricated values to a client, and two of the three kinds carry no mark
+
+- category: design
+- blocking: no
+- raised by: checkpoint 8 (re-run) of `#asset-media-extraction`
+
+`AI_MODEL.STUB` carries `IS_DEFAULT: true` and is the only seeded model row, so a deployment that
+never adds a real provider row serves the fixture's readings through the whole pipeline. They reach
+the client verbatim, in the result body and in the terminal callback.
+
+The marking is real but uneven, and the fixture's own class says why:
+
+| kind | what the client receives | marked |
+|---|---|---|
+| text | `stub-value-<digits>` | yes |
+| number | a plain number inside the caller's own stated range | **no** |
+| select | one of the caller's own options | **no** |
+| every field's `reason` | `[stub] demonstration value for <path>, supplied without a model call.` | yes |
+
+A number cannot carry a marker without ceasing to be a number, and a select value must be one of the
+options sent or step 4 drops it — so the `reason` line is the only place every settled field can say
+what it is, and it does.
+
+- [ ] open
+      **This is not a defect and it is not what checkpoint 8 failed on.** It was graded INFO,
+      deliberately, and is recorded because a production installation that fails open to a fixture
+      should be a decision somebody made rather than a default nobody examined.
+
+      **The question is one sentence long**: should a service with no real provider row configured
+      answer runs at all, or refuse them? Today it answers, and the client is told what it is
+      getting only in a line it may or may not display. The alternative — refusing a run when the
+      resolved model is the keyless one outside development — would protect a client that wires the
+      demo endpoint to a live screen, and would cost the demonstrability that [[Q133]]'s fixture was
+      built for.
+
+      **It interacts with §20's use case 4**, which is exactly the capability the fixture exists to
+      serve, so refusing outright is not obviously right. What is wrong is only that nothing
+      currently makes the choice visible.
+
+
+## Q136 — a field path over 191 characters is accepted, runs, and is then silently dropped
+
+- category: undefined-detail
+- blocking: no
+- raised by: checkpoint 8 (scoped re-run) of `#asset-media-extraction`
+
+The accept-time bounds added for [[Q131]]'s sibling cover how *many* `fieldSchema` entries a request
+may carry and how long `mediaSignature` may be. They do not bound what is **inside** an entry: a
+`path` and an `options[]` are limited only by the 10 MB body.
+
+That is not a resource problem — the audit measured both linear and non-multiplicative. It is a
+**truthfulness** problem. A path longer than 191 characters is accepted, the run executes, and then
+`AiRunFieldOutcomeRecorder` and `AiRunStepRecorder` both refuse it against their 191-character
+`FIELD_PATH_PATTERN` — so the field settles and is **silently missing** from what the client reads
+back. No refusal, no reason code, no line in the trace.
+
+- [ ] open
+      **The house rule that would cover it is already written**, in
+      `AiRunCommonFieldsInputValidator`'s own header: *"a value too long for its column is a value
+      the schema does not accept, and the contract answers that `422`"*. Five caller strings are held
+      to 191 for exactly this reason. A field path is a sixth, and nothing holds it.
+
+      **It predates the bounds work** — the recorders have always refused a long path — so this is
+      not a regression, and the door rule that would fix it is one more entry in the validator the
+      same work created.
+
+      **What needs deciding is only whether the drop should become a refusal**, since answering
+      `422` would refuse requests the service accepts today. The alternative — reporting the field
+      as unsettled with a reason — keeps the run but needs a reason code the contract does not have.
+
+
+## Q137 — every declared medium is written before the count limit is asked
+
+- category: design
+- blocking: no
+- raised by: checkpoint 8 (scoped re-run) of `#asset-media-extraction`
+
+`AiRunMediaPreparer#prepareAiRunMedia()` calls `recordDeclaredAiRunMedia()` — a bulk insert of one
+row per declared medium — and only afterwards hands the rows to `AiRunMediaCollector`, which asks
+the 12-count limit and raises `MEDIA_LIMIT_EXCEEDED`. Verified by reading: the write is at line 203,
+the collector at 214, the refusal at 221.
+
+So a request declaring 50,000 media writes 50,000 rows and then fails the run. The `media[]` array
+is bounded by nothing at the door — only by the 10 MB body, which allows on the order of 66,000
+descriptors.
+
+- [x] recorded rather than fixed, and the reason is a comparison
+      **The door is the wrong place for this bound, which is why it was not added there.** §20's
+      criterion asks that a request carrying more photographs than the limit be refused *"with the
+      limit named in the reason's parameters"* — that is a **run failure** carrying a reason code
+      and parameters, not an HTTP refusal, and checkpoint 6 already established that those
+      parameters cannot travel in a refusal envelope. Bounding `media[]` at the door would answer
+      `422` and contradict the criterion.
+
+      **The right fix is an ordering one**: ask `AiRunMediaLimitInspector#isWithinMediaCountLimit()`
+      before writing, since it takes a count and nothing else, and raise the same failure with the
+      same parameters. The criterion is preserved exactly and no row is written for a request that
+      will be refused.
+
+      **It is recorded rather than done, and the comparison is the justification.** The defect this
+      audit round was called for — one request holding the shared queue for tens of minutes — denied
+      service to **every** client and was fixed. This one writes rows for **its own** run, which then
+      fails; it needs valid credentials, it is bounded by the body limit, and nothing another client
+      does is affected. Fixing it means reopening checkpoint 5 a fourth time.
+
+      **One thing to preserve when it is fixed**: the scan at `AssetFieldReadingInspector:700`
+      (`sourceMediaKeys.every(it => sentMediaKeys.includes(it))`) is safe **because step 2 throws
+      `MEDIA_LIMIT_EXCEEDED` and ends the run**, not because anything at the door bounds the
+      declared list — `sentMediaKeys` is what the request declared, deliberately, so a photograph
+      sent but unreadable still counts as sent. Anyone relaxing that step-2 throw would remove the
+      only thing keeping that scan bounded.
+

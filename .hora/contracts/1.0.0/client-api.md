@@ -59,9 +59,9 @@ The one request that runs the other way. It is not a route of this server.
 | `correlationId` | groups the runs belonging to one business object |
 | `callbackUrl` | must start with the client's registered prefix |
 | `asset` | the category slugs and the province the asset sits in |
-| `fieldSchema[]` | `path`, `label`, `valueKind`, `isRequired`, and per kind `unit` / `maxLength` / `options[]` |
+| `fieldSchema[]` | `path`, `label`, `valueKind`, `isRequired`, and per kind `unit` / `maxLength` / `options[]`. **At most 200 entries; a longer schema is refused `422`** |
 | `media[]` | `mediaKey`, `mediaCategoryName`, `url`, `mimeType`, `byteSize` |
-| `mediaSignature` | derived from the media, and echoed back |
+| `mediaSignature` | derived from the media, and echoed back. **A string of at most 2,304 characters; a value of any other type, or a longer one, is refused `422`.** It may be omitted |
 
 `valueKind` describes the shape of a value the caller's own schema defines and has no table
 behind it. `mediaCategoryName` names a row in a master table this service keeps.
@@ -132,6 +132,16 @@ of these.
 | `422` | a required field is missing, or a field's value is not one the schema accepts |
 | `422` | the `Idempotency-Key` header was not sent. It is a required field of the request, even though it does not travel in the body |
 | `422` | nothing could be read as a body. A run cannot be stored without the hash of the bytes it was accepted with, so this is refused rather than stored incomplete |
+| `422` | `fieldSchema` carries more entries than the limit |
+| `422` | `mediaSignature` is not a string, or is longer than the limit |
+| `429` | the client has had more runs accepted in the window than its limit allows. No run is created and no model is called. The check runs before the idempotency lookup, so a repeat of a key already stored is refused too while the window is full, rather than answered from the run it names |
+
+Both request limits are enforced **when the request is accepted, not when the run executes**. The
+300-second run limit is a deadline raced against the run; it cannot interrupt synchronous work, so a
+request this service has accepted is a request its queue is committed to. The figures come from what
+the request is: a field schema is a form one person fills in by hand for one asset, and a media
+signature is derived from at most 12 photographs whose keys this service already holds to 191
+characters each.
 
 `401` and `403` are told apart on purpose: the first says the caller is not who it claims,
 the second says it is and may not. A caller that cannot tell them apart retries a rotation
