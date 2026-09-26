@@ -52,6 +52,16 @@ export default [
       // other, so nothing has to be named back in.
       '.claude/agents/',
       '.claude/skills/',
+
+      // Code extracted from the ported services, carried in the specification's
+      // annex so a reader can see what the version is replacing. Not authored
+      // here and not maintained here: it is evidence about somebody else's
+      // repository, which lints itself under its own config, exactly as the
+      // implementation repositories above do. Holding an extract to this
+      // repository's conventions asks it to be code it is not, and the twenty-
+      // seven failures it raises are all of that kind - a static class, a name
+      // this configuration restricts, globals a browser-shaped file assumes.
+      'specs/*/annex/reference/',
     ],
   },
 ]
