@@ -201,7 +201,68 @@ Constraint: a model call is never retried automatically (#scope, permanently out
       a file being deleted when a run ends, and every ending is driven — but "a real job, through
       Redis, deleted its real files" is not established and is not claimed.
       -->
-- [ ] 8. Security audit
+- [x] 8. Security audit  <!-- skills: hor-security-audit (invoked in full, never through a digest); digests: n/a — an audit skill IS the criteria -->  <!-- agents: 6 audits + 5 fixes; wall-time: ~36000s -->
+      <!--
+      **Six rounds, and the shape of what they found changed halfway through.** Rounds 1 and 2
+      found defects in the guards. Rounds 3, 4, 5 and 6 found none — every one of their findings
+      was in a test or in a sentence. Round 5's fix changed **not one line of production code**.
+
+      Round 1: 2 HIGH, 3 MEDIUM, 3 LOW. The first HIGH was an SSRF — `fetch` ran at its default
+      `redirect: 'follow'` and the allow-list was asked once, so a host the list refuses had its
+      body returned as a fetched medium. **Reproduced in the main session before the fix and again
+      after**: the refused host went from receiving the body to receiving zero requests. The second
+      was a predictable, pre-creatable workspace path: `mkdir` with `recursive` adopts a planted
+      symlink, and `rm` then unlinks the link and leaves the bytes — with the deletion reporting
+      success.
+
+      Round 2: **both of round 1's fixes had opened a MEDIUM each.** `redirect: 'manual'` made each
+      `3xx` body this class's to dispose of and nothing did; and the bounded read rebuilt its
+      accumulator per chunk, so a body arriving one byte at a time burned fifteen seconds of
+      processor to read eighty-six kilobytes. The fix traded an unbounded-memory hole for a
+      quadratic-CPU one.
+
+      Round 3: **the code was complete and two of six disposal branches had no test** — remove a
+      line and the suite stayed green. Plus an enumeration that had gone stale under round 2's own
+      fix.
+
+      Round 4 answered those **and corrected both predecessors' diagnosis**: the release mechanism
+      is finalization, whose timing is arbitrary in both directions, not a delay. From that it found
+      the four pre-existing release describes would each have passed against their own defect about
+      one run in five, and rewrote them to hold a strong reference so the finalizer is out of the
+      experiment.
+
+      Round 5: **round 4's own correction was false.** A held `Response`'s socket is released by the
+      request's abort signal — measured to the millisecond, and reproduced in the main session — and
+      by the server's keep-alive. The six describes discriminated only because both sat beyond their
+      wait, which no comment stated, while the file already carried describes at 12000 and at 1. And
+      the "seventh disposal branch" the class called hypothetical already existed, was the most
+      reachable of the seven, and had no test. Its fix pinned the keep-alive and asserted the signal
+      in all eight describes.
+
+      Round 6: attacked round 5's fix on all four routes it was set and **failed on every one**.
+      Every figure round 5 wrote reproduced, most to the digit. Its verdict, and the reason this
+      checkpoint closes: *"every defect I found is in a sentence that carries no measurement"* — the
+      measured claims had stopped being wrong.
+
+      **The last fix turned those into code and figures.** A blank `location` resolving to its own
+      hop was closed — the same defect fixed in the sibling class a round earlier and not carried
+      across, the second time a lesson failed to travel between these two files. The per-fetch
+      timeout kept its value and lost a justification that did not survive arithmetic: twelve times
+      thirty seconds is 360 against a run budget of 300, before the upload and three readings.
+
+      **Two things the closing round did that are worth more than the findings.** It measured that
+      one claimed inequality was **not the relation the path obeys** — the boundary sits where the
+      client's arithmetic over the server's hint puts it, between 900 and 1000 ms — and so added no
+      assertion rather than one that would go red where the experiment is sound. And it declined to
+      mandate concurrency for the fetches, because the class's own comment argues two paragraphs
+      earlier against the memory cost that would buy.
+
+      **What this hands forward, and it is a weaker guarantee than the rest** ([[Q125]]): the fetch
+      budget now rests on a paragraph being read by the author of a caller that does not exist yet.
+
+      Final state at `7308b5a`: `npx eslint .` clean, 2963 across 83 suites and 369 across 6, green
+      on two consecutive runs.
+      -->
 - [ ] 9. Verify the use cases again, against the built API
 
 ## Frontend gate

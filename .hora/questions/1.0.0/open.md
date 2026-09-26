@@ -3571,6 +3571,35 @@ check answers the same for each — verified by reading the inspector and the ma
       the property [[Q94]] was for — a fourth kind is a row, not a code change. The alternative is
       §20 dropping one of its two criteria.
 
+- [x] settled at checkpoint 3 of `#asset-media-extraction`
+      `is_active` is **replaced**, not joined: `ai_run_media_categories` carries `handling_name`,
+      one of three words held in `AI_RUN_MEDIA_HANDLING` — `handle`, `refuse`, `ignore`. Image
+      handles, video refuses, audio ignores.
+
+      **Why the endings are a constant vocabulary and not a fourth master table**, which is the part
+      worth keeping: a fourth *kind* is a row because the service already knows all three things it
+      might do with one, while a fourth *handling* is a branch of behaviour that does not exist until
+      code implements it — seeding one would promise an ending nothing could carry out. So kinds stay
+      data and endings stay code, and [[Q94]]'s property is intact.
+
+      **Why replaced rather than kept alongside:** two columns able to disagree — a kind marked
+      inactive and handled — cost a reader more than the missing third state did, and would need a
+      rule about which wins. This master is also the one whose `is_active` never carried the
+      column's usual meaning: every kind seeded here is one a caller may legitimately name, video
+      and audio included, since being namable is the whole reason their rows exist.
+
+      **The costs, named rather than discovered later:** this master is now the only one without
+      `is_active`, diverging from its siblings' standard column set; a kind can no longer be
+      withdrawn by a flag, and removing the row instead gives a caller "unrecognized value" rather
+      than "a kind we know and do not handle"; and the migration's `down` restores the column
+      without its per-row values, because the seeder supplied them.
+
+      **What is still open is §18's own sentence.** It reads "refused by name rather than ignored",
+      which describes one behaviour for both kinds and is now narrower than what the schema does.
+      Nothing in code depends on it. Whether it is amended is `/hora-spec`'s.
+
+- [ ] open — §18's wording
+
       **Where it bites:** `#asset-media-extraction`'s step 2 has to act on the difference, and the
       only thing it can ask today answers one word for both. This needs deciding before that step is
       written, not after.
@@ -3602,3 +3631,105 @@ other direction.
       **Worth settling before checkpoint 5**, because "the client's rate limit" implies a figure
       stored per client — and `api_clients` carries no such column, so either the limit is one
       figure for everyone, or this is also a schema change.
+
+
+## Q123 — three shapes the request and the result never declare
+
+- category: undefined-detail
+- blocking: no
+- raised by: checkpoint 3 of `#asset-media-extraction`
+
+§20 and `.hora/contracts/1.0.0/client-api.md` leave three shapes unstated, and all three reach a
+client:
+
+- **`asset.province`** — declared as "the category slugs and the province". Nothing says whether a
+  province is a name, a code or a slug. Typed `string`.
+- **A field result's `value`** — typed `string | number`, because a number field answers a number
+  and a text or select field answers a string. Nothing states it; step 4 bounds it either way.
+- **`suggestionConfidence`'s range** — 0–1 or 0–100. Nothing says.
+
+- [ ] open
+      **The province is the one that bites silently.** A client integrating against the wrong reading
+      sends something this service accepts and neither side notices until the values come back wrong.
+      Checkpoint 4's stub has to pick one, and whatever it picks becomes what a client builds against
+      before checkpoint 6 exists.
+
+      **The confidence range matters at checkpoint 5**, where the formula is written and versioned
+      ([[Q92]] already records that the version is per settled field). A formula versioned against one
+      range and read against the other is a defect that survives a version bump.
+
+## Q124 — the accepted response is declared as five statuses, and the contract says one
+
+- category: contradiction
+- blocking: no
+- raised by: checkpoint 3 of `#asset-media-extraction`
+
+`.hora/contracts/1.0.0/client-api.md` describes `AiRunAcceptedResponse`'s `statusName` as
+"(always `queued`)" in its shape section, and four sections later says a repeated request answers
+`202` "carrying that run's status as it now stands". **Those cannot both be true**, and the built
+`BaseAiRunPostRenderer#buildRepeatedRunResponse()` passes `aiRun.AiRunStatus.name` — whatever it is.
+
+- [ ] open
+      The type follows the shipped code and the repeat row: the five-status union. Declaring
+      `'queued'` alone would be a lie about code that already runs.
+
+      **If the contract is to be tightened, the shape section is the line to reword, not the code** —
+      a client that repeats an idempotency key after its run has finished gets a real status, and
+      that is the useful behaviour.
+
+
+## Q125 — the fetch budget is a paragraph, and the caller that must read it does not exist
+
+- category: design
+- blocking: no
+- raised by: checkpoint 8, round 6, of `#media-fetch`
+
+`DEFAULT_REQUEST_TIMEOUT_MILLISECONDS` is 30000 and the run's limit is 300000, with a cap of twelve
+media. **12 × 30000 = 360000.** Twelve slow-but-not-stalled fetches overrun the whole run budget by
+sixty seconds, before the upload and three readings.
+
+The constant was justified by arithmetic that did not work, and the justification is now correct: the
+bound buys **a named failure in place of an unnamed one** — a stalled host becomes
+`MEDIA_FETCH_FAILED` against a nameable medium rather than an unnamed `TIME_LIMIT_EXCEEDED` — and it
+explicitly does **not** bound the run.
+
+- [ ] open
+      **Two alternatives were weighed and both refused**, which is why this is a question rather than
+      a fix. Tightening the bound to fit twelve inside the budget needs 20 s or less, which demands
+      512 KB/s and would refuse an honest slow transfer of a file this service accepts — arriving as
+      `MEDIA_FETCH_FAILED` with nothing naming the speed. Mandating concurrency would assemble up to
+      twelve 10 MB bodies at once, which is the exhaustion the same class's comment argues against
+      two paragraphs earlier, reached from the other side.
+
+      **What is handed forward is weaker than the rest of that checkpoint**: nothing asserts the
+      overrun and nothing makes a caller ration. The caller is `#asset-media-extraction`'s step 2,
+      and it can still fetch twelve sequentially and produce exactly the unnamed
+      `TIME_LIMIT_EXCEEDED` this finding is about, with nothing red to say so.
+
+      **So it is written here rather than left in the file.** Whoever builds that step needs it as an
+      input, not as a comment they may or may not open. The spec is silent on whether a run's media
+      are fetched sequentially or concurrently, and that silence is what the caller has to resolve.
+
+## Q126 — two classes now duplicate a redirect-following tool three times over
+
+- category: design
+- blocking: no
+- raised by: checkpoint 8, round 6, of `#media-fetch`
+
+`MediaFetchClient` and `AiRunCallbackSender` now hold the same thing three times: the
+`redirect: 'manual'` hand-written hop walk, the response-body disposal, and the blank-`location`
+guard. Each duplication was the right call in its round — the second and third exist **because** a
+lesson had failed to travel between the two files, twice, in both directions.
+
+- [ ] open
+      **The duplication is not the defect; it is the symptom.** Twice now a fix landed in one class
+      and the identical defect sat in the other until an audit found it. A shared tool would make the
+      lesson travel by construction.
+
+      **What makes it non-trivial:** the two ask different per-hop questions — one a host allow-list,
+      one a client's registered URL prefix — so a shared walk has to be parameterized on the only
+      interesting part, and the two classes' failure vocabularies differ.
+
+      **Worth deciding at a later checkpoint, not retrofitted now.** Both are under audit closure and
+      both are correct; a refactor of two audited classes buys structure at the price of re-opening
+      what six and three rounds established.

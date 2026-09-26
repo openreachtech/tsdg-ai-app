@@ -76,7 +76,9 @@ read from the package itself** under the backend row's `node_modules/`.
 | the service's own dispatcher | `JobDispatcherCtor` | static getter | backend | abstract on `BaseAiRunPostRenderer`, beside `aiRunCategory`. A service names its own |
 | the daemon's entry point | `scripts/startJobDaemon.js` | script | backend | `JobWorkersDaemon.createAsync({ EngineCtor })` — see [[Q87]] |
 | where concrete jobs live | `app/jobs/` | directory | backend | the daemon's `workersPath`; auto-discovered, no registration file |
-| which media kinds this version handles | `isActive` | field | backend | on `ai_run_media_categories`. A flag, so a fourth kind is a row and turning video on is not a code change — see [[Q94]] |
+| what this version does with a media kind | `handlingName` | field | backend | on `ai_run_media_categories`: `handle` / `refuse` / `ignore`. Replaced a boolean that could not carry three endings — see [[Q94]], [[Q121]] |
+| the media-handling vocabulary | `AI_RUN_MEDIA_HANDLING` | constant hash | backend | `constants/aiRunMediaHandlingConstants.cjs` + bridge. Three values and no table: a kind is data, a handling is code |
+| the accepted-run body | `AiRunAcceptedResponse` | interface | backend | `types/restfulapi/aiRunAccepted.d.ts`, its own file because the base POST renderer builds it and every AI service answers with it |
 | the media-kind hash | `AI_RUN_MEDIA_CATEGORY` | constant | backend | keys `IMAGE` / `VIDEO` / `AUDIO`; names are the `mediaCategoryName` the contract carries |
 | the egress record | `ProviderUploadedFile` | model | backend | which file went to which provider and when. Kept whether or not the run's content still exists |
 | the alias an include must name | `as: 'AiRunMedia'` | association option | backend | `singularize('AiRunMedia')` is `AiRunMedium`, so inference resolves to a column no table has |

@@ -284,7 +284,58 @@ Constraint: a model call is never retried automatically (#scope, permanently out
       Two of §12's nine criteria are not this checkpoint's and were not claimed: the read-back half
       of the fourth, and the ninth, both checkpoint 6's.
       -->
-- [ ] 8. Security audit
+- [x] 8. Security audit  <!-- skills: hor-security-audit (invoked in full, never through a digest); digests: n/a — an audit skill IS the criteria -->  <!-- agents: 3 audits + 3 fixes; wall-time: ~18000s -->
+      <!--
+      **Three rounds. The first found the most serious defect of the version.**
+
+      Round 1: 1 HIGH, 3 MEDIUM, 6 LOW. The HIGH was the same family as the sibling feature's — an
+      outbound request naming no redirect policy — but with a far heavier payload: a client could
+      have this service post **a run's entire result and a valid HMAC signature** anywhere it liked.
+      A registered prefix, a run under it, and an endpoint answering `307` to an internal address.
+      The final hop's status was recorded, so a `2xx` read as delivered and nothing retried; the
+      delivery table has no URL column and the log carries only a run key, so **nothing anywhere
+      recorded that the request went elsewhere**. Seven attempts made it an amplifier.
+
+      **Reproduced in the main session before the fix and after.** Before: the third party received
+      the body and the signature, and the sender recorded `200`. After: `{ httpStatusCode: 307 }`
+      and the third party received nothing.
+
+      Round 2: one MEDIUM and five sentences. The MEDIUM was a branch leaving the hop walk by
+      **throw** when a caller forgot an argument — the response undisposed, the socket open, and the
+      throw travelling past the point where the attempt is recorded, so a request that really went
+      out left no row. **Deleting the line that passes the inspector used to leave the whole suite
+      green**; I verified the fix by deleting it again, and it now fails 23 tests.
+
+      Round 3: **no defect in the production behaviour it could demonstrate.** What it found was two
+      guard gaps around correct code and five sentences — and it named the thing behind them: *both
+      gaps were the same failure mode the same commit found in the sibling class, fixed there, and
+      did not carry across.* That is mine: I applied a lesson to one class and not to its twin in
+      one commit.
+
+      The gaps: the branch that *follows* a hop — **the one a real client exercises on every
+      redirect** — had no test at all, and eight attempts leaked nine sockets without its line; and
+      the three release describes stopped discriminating the moment the request timeout dropped
+      under their wait, which this class's own comment argues toward.
+
+      **The fix measured before it chose.** It moved the disposal from a `catch` to a `finally`
+      after measuring that a second cancel is a no-op — making the guarantee structural rather than
+      a property of where a brace sits — and then reported honestly that this **changed what the
+      older line does**, from whether a socket is released to when. That cost is written down with
+      its figures, and named as what the answer leaves unguarded.
+
+      **Three of the five sentences were ranked by whether a reader acting on them would do the
+      wrong thing**, which is the right axis. The worst said the send has one raise; the same commit
+      had given it a second, after requests have gone out. A reader acting on it would add a throwing
+      guard inside the hop and reintroduce the unrecorded attempt, with the docblock vouching for
+      its impossibility.
+
+      **Standing, recorded not fixed**: §12 says a run produces **one** callback to the **registered**
+      URL, while an attempt can now be up to four posts of the same signed body to URLs inside the
+      prefix that are not the registered one, with only the last hop's status in the row.
+
+      Final state at `7308b5a`: `npx eslint .` clean, 2963 across 83 suites and 369 across 6, green
+      on two consecutive runs.
+      -->
 - [ ] 9. Verify the use cases again, against the built API
 
 ## Frontend gate

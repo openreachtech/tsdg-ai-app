@@ -98,7 +98,52 @@ Constraint: a model call is never retried automatically (#scope, permanently out
       -->
 
 ## Backend gate
-- [ ] 3. DB and API schemas
+- [x] 3. DB and API schemas  <!-- skills: hor-database-design, hor-sequelize-migration, hor-sequelize-model, hor-type-interface, hor-constant-definition, hor-restfulapi-architecture, hoc-naming, hoc-jsdoc, hoc-classes-principles, hoc-classes-constructor, hoc-classes-notations, hoc-methods, hoc-accessors, hor-backend-testing, hoc-jest; digests: hora-skills-ort-renchan 0.2.1, hora-skills-ort-core 0.4.0 -->  <!-- agents: 1; agent-time: ~900s; wall-time: ~1500s -->
+      <!--
+      §20 declares **no table of its own** — the field schema, the asset's category and the media
+      list all travel with the request — so this checkpoint is the API surface plus the one schema
+      change [[Q121]] forced.
+
+      **Q121 settled, and the reasoning is the part worth keeping.** §20 wants video *refused* and
+      audio *ignored*; `#media-fetch` had built a boolean. `is_active` is **replaced** by
+      `handling_name`, one of three words held as constants — and the endings are a constant
+      vocabulary rather than a fourth master table because **a fourth kind is a row (the service
+      already knows all three things it might do with one), while a fourth handling is a branch of
+      behaviour that does not exist until code implements it.** Seeding one would promise an ending
+      nothing could carry out. Kinds stay data; endings stay code; [[Q94]]'s property is intact.
+
+      Replaced rather than kept alongside, because two columns able to disagree — a kind marked
+      inactive and handled — cost a reader more than the missing third state did. And this master's
+      `is_active` never carried the column's usual meaning anyway: every kind seeded here is one a
+      caller may legitimately name, which is the whole reason video and audio have rows.
+
+      **The costs were named rather than discovered later**: this is now the only master without
+      `is_active`; a kind can no longer be withdrawn by a flag, and removing the row instead gives a
+      caller "unrecognized value" rather than "a kind we know and do not handle"; and the migration's
+      `down` restores the column without its per-row values.
+
+      **The inspector kept the property its old tests existed to prove.** The cases that handed in a
+      set with video's flag **on** and asserted it was then handled are preserved in spirit — a set
+      whose video row says `handle` is still asserted handled — and sharpened: a new describe asserts
+      one set answers **three different words** for the three kinds, which a class collapsing refuse
+      and ignore again would fail. An unseeded name answers `null`, deliberately not `ignore`.
+
+      **Three API types declared**, following `aiRunGet.d.ts`. `AiRunAcceptedResponse` went in a file
+      of its own because `BaseAiRunPostRenderer` builds it and every AI service answers with it —
+      the one place the precedent was extended rather than copied, reported as such.
+
+      **The renderer class was deliberately not created**: a class under the scanned folder is a live
+      route the moment the engine boots, and the stub is checkpoint 4's.
+
+      **Two silences recorded rather than guessed at**: three shapes the request and result never
+      declare ([[Q123]] — and `asset.province` is the one that fails silently), and a contract that
+      says a status is always `queued` in one section and "as it now stands" four sections later
+      ([[Q124]]), where the type follows the shipped code.
+
+      **[[Q122]] deliberately not built.** Rate limiting is this feature's criterion and its subject
+      does not exist; it is checkpoint 6's to wire, and it needs a decision first — a per-client
+      limit means a column on a table belonging to an already-accepted feature.
+      -->
 - [ ] 4. Stub API
 - [ ] 5. The modules the implementation needs
 - [ ] 6. Actual API
