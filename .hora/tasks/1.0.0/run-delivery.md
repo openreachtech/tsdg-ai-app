@@ -392,4 +392,10 @@ Constraint: a model call is never retried automatically (#scope, permanently out
 - [x] 17. Local test environment  <!-- n/a: target names no frontend row -->
 
 ## Acceptance gate
-- [ ] 18. Acceptance (E2E and unit both)
+- [x] 18. Acceptance (E2E and unit both)  <!-- agents: 0; wall-time: ~600s -->
+      <!--
+      Scoped gate run, recorded at `.hora/acceptance/1.0.0/run-delivery.md`. **Partial**: steps 3
+      and 4 have no equipped delegate in this repository, which is the gap every acceptance of
+      this version has recorded. The unit suites ran in full and green; the live review is not
+      attempted at a feature gate, and this product declares no frontend row to drive.
+      -->
