@@ -300,7 +300,64 @@ Constraint: a model call is never retried automatically (#scope, permanently out
       Verified at two consecutive full runs: `npx eslint .` clean, 3259 across 93 suites and 412
       across 6.
       -->
-- [ ] 7. Worker
+- [x] 7. Worker  <!-- skills: hor-execution-placement-pattern, hor-renchan-job-bullmq, hoc-classes-principles, hoc-classes-constructor, hoc-classes-notations, hoc-naming, hoc-jsdoc, hoc-methods, hor-constant-definition, hor-backend-testing, hoc-jest; digests: hora-skills-ort-renchan 0.2.1, hora-skills-ort-core 0.4.0 -->  <!-- agents: 1 (resumed once); agent-time: ~3002s; wall-time: ~4900s -->
+      <!--
+      The placement skill ran first, as this checkpoint's own rule requires, and found work: a run
+      writes six tables, fetches up to twelve files from somebody else's storage, uploads them and
+      reads them three times through a model inside a 300-second limit. Request-based trigger, one
+      queue, one job directory. `hor-post-worker` was excluded on two grounds rather than one — its
+      story is told for GraphQL and this entry point is REST, but it would be the wrong placement
+      on a GraphQL surface too, because the run **is** what the caller asked for rather than a side
+      effect beside it.
+
+      **The renderer's removal condition was met exactly as it was written** at checkpoint 6:
+      `UNBUILT_QUEUE_JOB_DISPATCHER`, its getter and the `#ensureJobDispatcher()` override are gone
+      and `get:JobDispatcherCtor` names the real dispatcher.
+
+      **The queue was not the only thing missing, and that is this checkpoint's largest finding.**
+      Two master tables the run's own code reads had never been seeded by any feature — the row
+      binding the agent to a model, and the agent's reading tool. Confirmed against the committed
+      tree before the fix. `#provider-layer` passed all eighteen gates holding code that could not
+      execute; recorded as [[Q129]], with the seeders added here.
+
+      **Two tests had written that gap down as the design**, which is what made it survive. A
+      describe named `'should be empty'` and a `toolSchemas: []` each carried a comment saying the
+      service agent has no tool bound to it this version — while `AssetMediaReadingFetcher` refuses
+      outright a run whose agent offers no reading tool. Both corrected. A test that canonises a
+      gap does not merely miss it; it defends it against the next reader.
+
+      **The base hook the agent reported rather than took, taken here.** `BaseAiRunJobWorker`
+      hardcoded `failureParameters: null`, so §20's photo-cap criterion was met as far as the
+      reason code and not as far as "with the limit named in the reason's parameters". The other
+      two hardcoded sites were checked first and are correct — one is the success path, and
+      `TIME_LIMIT_EXCEEDED` names no parameters in the contract — so exactly one changed, not
+      three. The new `#extractAiRunFailureParameters()` answers null by default, so every existing
+      subclass gets what it got before.
+
+      **Three stale sentences fell out of that change and were swept for rather than fixed one by
+      one**: a comment in the worker's test, a longer one in the worker's source still describing
+      the behaviour as unreachable, and two comments disagreeing on how many of the seven codes
+      carry parameters — four against six. The contract settles it at six, so "four" was wrong.
+
+      **The class the user split.** `AssetMediaExtractionRunner` carried twelve injected
+      collaborators, complexity 14 against a maximum of 12. No complexity exception exists anywhere
+      in this repository and the next largest factory is 8, so the rule was reporting a design
+      signal rather than a tight threshold. The media phase moved to `AiRunMediaPreparer` under
+      `app/aiRunMedia/`. The boundary landed one method off where the main session measured it, with
+      a reason: `#buildParsedRequestBody()` parses the whole request rather than its media, so it
+      stayed on the runner and the extractor became a class seam instead of a held collaborator —
+      nine defaults, complexity 11, rather than ten and exactly at the limit.
+
+      **A method-level verification flaw, found here and worth keeping.** Runs were being reported
+      with `bash ./test.sh > log 2>&1; echo "EXIT: $?"`, whose exit status is the `echo`'s and is
+      therefore always 0. The real status went to a file nobody read. Earlier green claims stand,
+      but on the evidence that both summary pairs printed with zero failures — `test.sh` runs under
+      `set -e`, so a failing group stops the run and the second pair never appears. That, not the
+      exit code, is the check.
+
+      Verified green on three consecutive full runs, the last on the exact tree committed:
+      `npx eslint .` clean, 3394 across 100 suites and 419 across 7.
+      -->
 - [ ] 8. Security audit
 - [ ] 9. Verify the use cases again, against the built API
 

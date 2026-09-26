@@ -3770,6 +3770,35 @@ lesson had failed to travel between the two files, twice, in both directions.
       both are correct; a refactor of two audited classes buys structure at the price of re-opening
       what six and three rounds established.
 
+- [x] accepted as duplication for 1.0.0, with a named trigger rather than a deferral
+      **"A later checkpoint" does not exist in this version.** Both features reached their last gate
+      with no checkpoint owning either class, so leaving this `open` would have meant deferring it
+      by drift rather than deciding it.
+
+      **The decision is to keep both copies, and the reason is where these two classes sit.** Both
+      of this version's HIGH findings were in exactly this code, one per class, and both were the
+      same defect family. A shared walk extracted at the last gate would re-open the two files six
+      and three audit rounds just closed, and it would do so in the one place where a mistake is
+      not a defect but an exposure.
+
+      **What is accepted is the duplication, not the failure mode.** The symptom this question
+      names is real and measured: twice a fix landed in one class while the identical defect sat in
+      the other. Nothing above makes that less likely.
+
+      **The trigger, so the next occasion is not another audit round**: a third caller needing
+      redirect-following, or a fix landing in either class again. Whichever comes first is when the
+      shared tool gets written, and it is 1.1.0 work.
+
+      **The cheapest thing that would make the lesson travel is additive, and it was not done here
+      because it is scope this version did not ask for.** A parity describe — both classes put
+      through the same redirect scenarios in one file — fails the moment one is fixed and the other
+      is not, and it changes neither audited class, which is what [[charter principle 3]] prefers.
+      Two of the three behaviours take it cleanly: a redirect to a target the per-hop question
+      rejects, and a blank `Location`. **The third does not**: response disposal has no clean
+      assertion, and an earlier round of this same audit produced a claim about release paths that
+      a probe then disproved. Writing a parity test that pretends to cover disposal would repeat
+      that mistake, so it would cover two of three and say so.
+
 
 ## Q127 — two counts inside one object had four spellings, and one route answered both
 
@@ -3840,4 +3869,65 @@ retries **a key already stored** is answered `429` instead of the run that key n
       `.hora/contracts/1.0.0/client-api.md` says a stored key is refused too while the window is
       full. A contract describing the behaviour somebody intends is worth nothing to a client
       integrating against the behaviour that ships.
+
+
+## Q129 — an accepted feature shipped code that could not run, and four gates did not notice
+
+- category: process
+- blocking: no
+- raised by: checkpoint 7 of `#asset-media-extraction`
+
+Building the job revealed that two master tables the run's own code reads had **never been seeded
+by any feature**:
+
+- `ai_agent_default_models` — seeded nowhere. `#provider-layer` installed `ai_agents`, both
+  instruction tables, their backup sinks and the `stub` model, but not the row binding the agent to
+  a model. Without it no driver resolves and every run fails before step 3.
+- `ai_tools` / `ai_agent_available_ai_tools` for the shipped agent — `constants/assetMediaExtractionToolConstants.cjs`
+  says in as many words that its values are "the baseline a seeder puts into `ai_tools`", and no
+  seeder did. The only rows that existed were `#provider-layer`'s `development` fixtures, which
+  their own seeder says are deliberately fake. Without the master rows `AssetMediaReadingFetcher`
+  refuses every run for offering no reading tool.
+
+Both were confirmed against the committed tree before the fix: `git grep ai_agent_default_models`
+over `sequelize/seeders/` at `HEAD` returned nothing at all.
+
+- [ ] open
+      **The defect is closed and the process question is not.** Checkpoint 7 added both as master
+      seeders with `dev-master/` re-exports, and `AiAgentModelBindingFinder`'s test now fails loudly
+      if either is missing. What stays open is that `#provider-layer` **passed all eighteen gates,
+      including acceptance**, holding code that could not execute.
+
+      **Why nothing caught it.** Every test that touched the agent either mocked the binding or used
+      the `development` fixtures, so the master path had no exercise. Nothing in the unit suites
+      asks whether the rows a class reads at run time exist in the seeders that ship. The first
+      thing to run the path end to end was this checkpoint, three features later.
+
+      **This is the same shape as the barrel gap recorded at checkpoint 5** — work that existed and
+      was never executed, passing because nothing ran it — and it is the second instance. The first
+      cost twenty-five unrun tests; this one cost an accepted feature that could not serve a request.
+
+      **What would have caught it is not more unit tests.** A run exercised against the master
+      seeders alone — the set that actually ships — is what distinguishes a class whose fixtures
+      exist from a service whose data does. Whether that belongs in a gate or in the acceptance
+      sweep is the question.
+
+      **A harder fact, found when the seeders landed and two tests went red.** The gap was not
+      merely unnoticed. `tests/__tests__/app/aiAgent/AiAgentPromptComposer.js` held two assertions
+      that the shipped agent has no tool — `#findAvailableAiTools()` under a describe named
+      `'should be empty'`, and `#composePrompt()` expecting `toolSchemas: []` — and each carried a
+      comment stating it as a property of the release: *"the service agent has no tool bound to it
+      this version"* and *"no tool is bound to the service agent this version"*.
+
+      **So somebody looked straight at the empty result and wrote it down as the design.** A run
+      whose agent offers no reading tool is refused outright by `AssetMediaReadingFetcher` — the
+      message is `'refused a run whose agent offers no reading tool'` — so what those two tests
+      pinned was a state in which the feature cannot serve one request. Both are corrected: the
+      emptiness case is replaced by the binding the agent now carries, and the prompt's expectation
+      asserts the bound tool by name.
+
+      **This is the version's dominant defect family, one level up.** Every round of this feature's
+      audits turned up a sentence stating something the code does not do; here the sentence was in
+      a test, which is the one place a false statement is also a passing check. A test that
+      canonises a gap does not merely fail to catch it — it defends it against the next reader.
 
