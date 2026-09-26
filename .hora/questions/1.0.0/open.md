@@ -2856,3 +2856,250 @@ taking `{ options }` is still flagged (the destructured binding is a parameter b
 
       **Removal condition:** if Sequelize ever gives a bulk hook a return channel for its `where`,
       or if the shared config grows an `ignorePropertyModificationsFor` covering a hook's options.
+
+
+## Q96 — a step still running must carry an outcome code, and no vocabulary names one
+
+- category: contradiction
+- blocking: no
+- raised by: checkpoint 4 of `#run-delivery`
+
+`ai_run_steps.outcome_code` is `NOT NULL` while `finished_at` is nullable. Those two together say a
+step that has started and not finished must nevertheless carry an outcome code — and **§10 and §20
+name no code for "still running"**. The table belongs to `#run-record`, which is already accepted,
+so this is a contradiction inside shipped schema rather than a gap in work not yet done.
+
+- [ ] open
+      Found while building the stub for `GET /v1/ai-runs/:runKey`, which has to answer a `running`
+      run's `steps[]` and therefore had to put *something* in the column. The stub uses `running` as
+      a specimen and says so in the file.
+
+      **Two ways out, and they are not equivalent.** Making the column nullable while a step is in
+      flight says "no outcome yet" in the schema, and `finished_at` already carries that information
+      so the pair stays consistent. Writing a `running` code into the vocabulary makes the in-flight
+      state a value like any other, which reads better in a response but means every consumer must
+      know that one code is not terminal.
+
+      **Where it bites:** checkpoint 6 answers this field from real rows, so whichever is chosen has
+      to be chosen before then. Until it is, a real `running` step has no defined answer.
+
+## Q97 — the asset-media-extraction result has a table in §20 and no type declaration
+
+- category: undefined-detail
+- blocking: no
+- raised by: checkpoint 4 of `#run-delivery`
+
+A stub for §12 cannot answer a succeeded run without materializing the `result` payload, and
+`result` is "per service" — §12 declares no shape and the contract gives only the
+asset-media-extraction table from §20. So **this feature's stub now contains a specimen of a later
+feature's payload**, taken field for field from §20's table.
+
+- [ ] open
+      Checkpoint 3 typed the field `Record<string, unknown> | null` with a comment saying the
+      answering service declares its own, so that a second service adds its own interface rather
+      than editing this one. That part is settled and is the right shape.
+
+      **What is not settled:** `#asset-media-extraction`'s own checkpoint 3 should declare the
+      concrete interface under `types/restfulapi/`, and **this stub's specimen must then be
+      reconciled against it**. Two independent renderings of one payload is exactly the drift the
+      one-builder-two-callers rule exists to prevent, and right now there are two.
+
+## Q98 — a decimal's wire type is decided by the dialect unless someone decides it
+
+- category: undefined-detail
+- blocking: no
+- raised by: checkpoint 4 of `#run-delivery`
+
+`ai_run_field_outcomes.suggestion_confidence` is a `decimal`. **Sequelize hands a `DECIMAL` back as
+a string on MariaDB** and the contract says nothing about the wire type, so a client reading
+`suggestionConfidence` gets `0.92` or `"0.92"` depending on which dialect answered.
+
+- [ ] open
+      The stub emits a number. Checkpoint 6 reads real rows and will emit a string unless it casts.
+
+      **This is the same trap that already failed once here** — `#run-record`'s checkpoint 3
+      recorded a DECIMAL/SQLite failure, and the local database is SQLite while live is MariaDB, so
+      a suite that passes locally does not settle it.
+
+      Decide once, in the contract, rather than let a client discover it. The same question reaches
+      every money-shaped or score-shaped field this product answers.
+
+## Q99 — the spec says a value is written in the asset owner's language, and the file rule says English
+
+- category: spec-assumption
+- blocking: no
+- raised by: checkpoint 4 of `#run-delivery`
+
+§20 says extracted values and their reasons are written in the language the asset owner reads. The
+project's own rule is one language per file and English in files. **A client reading the stub would
+reasonably conclude the field is ASCII**, because the canned `reason` strings are English with a
+comment stating the production language.
+
+- [ ] open
+      The stub is right to be English — the file rule governs what is in a file. What is missing is
+      a line in §12 or the contract saying the field is **free text in the asset owner's language**,
+      so a consumer sizes and renders it accordingly rather than discovering multi-byte text in
+      production.
+
+## Q100 — the equipped stub-API skill has no REST chapter
+
+- category: upstream-defect
+- blocking: no
+- raised by: checkpoint 4 of `#run-delivery`
+
+`hor-stub-api` is GraphQL-only: every instruction is about
+`server/graphql/resolvers/<audience>/stub|actual/`, `static get schema ()` and `errorCodeHash`.
+**This product's only client-facing surface is REST**, and the REST layer has no `stub/`↔`actual/`
+split to migrate through — one `renderersPath`, one class per route.
+
+- [ ] open
+      **Carried over rather than skipped**: the skill's grand principle (hardcoded literals only,
+      shape-accurate, the real class name and the real interface) applies unchanged, and the REST
+      form of the migration is written into the renderer's own JSDoc — checkpoint 6 keeps the file,
+      the class name, `get:routePath` and the response shape, and replaces the body; the canned
+      constants leave with the old body.
+
+      **One instruction of the skill pulled against this checkpoint's own requirement.** The skill
+      forbids conditionals; the assignment asked for a canned answer per distinguishable state.
+      Resolved with hash lookups — the sanctioned dispatch form — and no branch anywhere, with both
+      reads made total so a key reaching `Object.prototype` behaves as an unknown key does.
+
+      **What is owed:** report the gap to whoever maintains the equipped skills package. A REST
+      chapter, or a statement that the principle is surface-independent, would remove the judgment
+      call from the next person who stubs a route.
+
+## Q101 — the stub is a live route the moment the engine starts
+
+- category: design
+- blocking: no
+- raised by: checkpoint 4 of `#run-delivery`
+
+The REST layer has no barrel. `AppRestfulApiServerEngine.config.renderersPath` points at
+`server/restfulapi/renderers/v1/`, and `RestfulApiRoutesBuilder` deep-loads every class under it
+whose prototype is a `BaseRenderer` and registers it at boot. **So `GET /v1/ai-runs/:runKey` answers
+canned data from the next start**, and it is the first renderer to land under that tree.
+
+- [ ] open
+      **Verified in the main session rather than taken on report**, because a stub that answers the
+      outside world is different from a stub that does not. `BaseRenderer#passesFilter` defaults to
+      `false`, and `RestfulApiRoutesBuilder#generateRendererHandler()` reads that as *run the filter
+      handler* — the naming is inverted, and the renderer inherits the default, so the engine's own
+      filter answers `401`/`403` ahead of the canned body. The stub is behind authentication.
+
+      **What remains true and worth stating:** between now and checkpoint 6, an authenticated client
+      reading a run back gets invented data rather than an error. That is what a stub is for, and
+      the window is one gate wide, but it is a window on a real surface rather than on a mock.
+
+
+## Q102 — the spec says "10 MB per photo" and never says which megabyte
+
+- category: undefined-detail
+- blocking: no
+- raised by: checkpoint 5 of `#media-fetch`
+
+§7 states the cap as "10 MB per photo, and at most 12 photos in one request — matching the client's
+own upload limit, so nothing is refused twice for different reasons". **A file between 10,000,000
+and 10,485,760 bytes is accepted on one reading and refused on the other.**
+
+- [ ] open
+      **The reading taken**: `10 * 1024 * 1024 = 10485760`, written into the constant's comment with
+      its reasoning — an upload limit is customarily stated in binary, and it is the larger of the
+      two readings, so nothing the client's own uploader accepted is refused here. The spec's own
+      justification for the cap ("matching the client's own upload limit") is what makes the larger
+      reading the safer one: refusing something the client already accepted is the failure this
+      sentence exists to prevent.
+
+      **Worth one line in the spec**, because the two readings differ by 485,760 bytes and the
+      boundary is exactly where a complaint would come from.
+
+## Q103 — the contract fixes no field names for the limit reason's parameters
+
+- category: undefined-detail
+- blocking: no
+- raised by: checkpoint 5 of `#media-fetch`
+
+`MEDIA_LIMIT_EXCEEDED` is the one reason code of the seven that carries parameters, and
+`.hora/contracts/1.0.0/client-api.md` says only that they "carry the limit". **No field names.** The
+client system builds its own wording out of them, so the names are part of the interface whether or
+not the contract says so.
+
+- [ ] open
+      **The shape chosen**: `{ limitName, limitValue, declaredValue }`, with `limitName` one of
+      `'mediaByteSize'` / `'mediaCount'`. The distinction matters because the size cap and the count
+      cap share one reason code and are two different things for a person to do about — trim a photo,
+      or send fewer.
+
+      **This belongs in the contract** rather than being settled by the first implementation that
+      needed it. `#run-delivery`'s stub independently chose `{ mediaCountLimit, sentMediaCount }` for
+      the same code — **so there are already two spellings of one payload in this branch**, which is
+      exactly what a contract exists to stop. They must be reconciled before checkpoint 6.
+
+## Q104 — the kind refusal is required by the constraint block and by no acceptance criterion
+
+- category: contradiction
+- blocking: no
+- raised by: checkpoint 5 of `#media-fetch`
+
+§18's constraint block and the client contract both require `MEDIA_UNSUPPORTED` — "a medium of a kind
+this version does not handle, named rather than ignored", which is also why §18 seeds `video` and
+`audio` at all. **None of §18's six acceptance criteria covers it.**
+
+- [ ] open
+      `AiRunMediaCategoryInspector` was built and tested for it anyway, because checkpoint 3 put
+      `is_active` on the master for exactly this and [[Q94]] records that reading.
+
+      **The gap is in what the gate can catch, not in the code.** No criterion covers this behaviour,
+      so a later change that dropped the kind check would pass this feature's checkpoint 9 and its
+      acceptance gate with nothing red. Every other behaviour §18 asks for has a criterion standing
+      over it; this one does not.
+
+      **The fix is a criterion in §18**, which is `/hora-spec`'s to write, not this feature's.
+
+## Q105 — use case 2 has nothing to call, and checkpoint 9 will find that
+
+- category: spec-assumption
+- blocking: no
+- raised by: checkpoint 5 of `#media-fetch`
+
+§18's second use case is "ORT answers, months later, exactly which file was handed to which provider
+and when". Checkpoint 2 verified it on paper against the table and its join, and that verification
+holds. **But §18 declares no operation for it**, so there is no API to ask.
+
+- [ ] open
+      Deliberately not built: an operation reaching past this checkpoint would be work the spec does
+      not ask for, and inventing one here would put a client-facing surface into the product by
+      implication rather than by decision.
+
+      **Where it surfaces:** checkpoint 9 re-verifies the use cases against the **built API**. For
+      this one there is nothing to call, so the answer will be that the data is there and the
+      question cannot be asked over the wire. That is a true answer and it should be recorded as one
+      rather than read as a failure — but it is also the moment to decide whether an operator tool,
+      a query, or nothing at all is what this use case actually wants.
+
+## Q106 — two catalogued packages were read and not taken
+
+- category: design
+- blocking: no
+- raised by: checkpoint 5 of `#media-fetch`
+
+The once-per-feature catalog check found two entries overlapping this work. Both were declined, and
+the reasoning is recorded so the choice is a decision rather than an oversight.
+
+- [ ] open
+      **The rocket-client triad** (Launcher / Payload / Capsule), which the external-API-client
+      convention is written around. It models endpoints of *one* API: a Launcher holds a base URL, a
+      Payload describes method / pathname / query / body. A media fetch has **no base URL** — the
+      host varies per request and is bounded only by the allow-list — no pathname to describe, since
+      the whole URL arrives verbatim in the request body, and a binary body rather than a parsed one.
+      The convention's cross-cutting rules were followed instead: native `fetch` only, failure
+      decided from the returned value rather than a `try`/`catch` at the caller, `null` never
+      `undefined`, and `fetch` reached through a static getter so a test substitutes it.
+
+      **The unit said outright it was not fully confident in this one**, and that is worth keeping:
+      taking the triad later is a dependency plus a rewrite of `MediaFetchClient`, not a refactor.
+
+      **The value-inspector package**, overlapping the whole-number checks. Declined because this
+      repository already answers the same question by hand in `AiRunKeyInspector` ([[Q9]] records the
+      same call for `RunKeyGenerator`), and because the behaviours differ where it matters: a
+      declared size of `0` must **pass** the cap check while `isPositiveNumberLike()` would refuse
+      it, and `'007'` must not read as a size.

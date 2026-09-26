@@ -219,7 +219,69 @@ Constraint: a model call is never retried automatically (#scope, permanently out
       1765 tests in `tests/__tests__/` across 56 suites, 275 in `tests/_orders/`, both green on the
       first run. `npx eslint .` clean.
       -->
-- [ ] 8. Security audit
+- [x] 8. Security audit  <!-- skills: hor-security-audit (invoked in full, never through a digest); digests: n/a — an audit skill IS the criteria -->  <!-- agents: 3 audits + 3 fixes; wall-time: ~14400s -->
+      <!--
+      **Three rounds, and the second and third each found that the previous answer had been applied
+      one level too shallow.** That progression is the finding worth keeping, more than any single
+      defect in it.
+
+      Round 1: seven findings. The one that mattered was mine — I had approved a guard that read
+      `Op.notIn` out of a status condition and called that a proof, and Sequelize drops a column's
+      other operators when `Op.and`/`Op.or` sits beside them. A canceled run was revived to RUNNING
+      with the guard reporting the write safe. The other six: a worker logging through a logger the
+      engine no-ops in production; nothing validating what crossed the queue boundary; no transport
+      encryption on Redis; a rejected connection left in the pool forever; a throwing teardown
+      skipping the process exit; and a shutdown sink attached twice.
+
+      Round 2 (N1): the round-1 answer counted *own* symbols. Sequelize reads `Op.and` through the
+      **prototype chain**, which no own-key inspection can see. The answer: compile the caller's
+      `where` through the query generator, compare it character for character against a rendering of
+      the model's own condition, and then **assign that condition to `options.where`** so the
+      statement runs under the model's object rather than the caller's. N2: two waits with no bound —
+      BullMQ resolves `waitUntilReady()` on `ready` and rejects only on `end`, and ioredis with
+      `maxRetriesPerRequest: null` never emits `end`, so a request hung and a process asked to stop
+      never took its exit. Both bounded at five seconds.
+
+      **Round 3 (F1, HIGH): the same lesson, unapplied to the values.** Round 2 taught the guard to
+      compile rather than read by key — and that was done for the `where`, while the **trigger** that
+      decides whether the `where` is looked at at all still compared value keys against the literal
+      string `AiRunStatusId`. A caller spelling the **column** name walks past it: Sequelize runs
+      `beforeBulkUpdate` on the caller's raw keys and only afterwards maps them, passing a key it does
+      not recognise into the `SET` clause verbatim. **Reproduced in the main session before being
+      handed on** — run `10010006`, CANCELED, moved to RUNNING with `affected=[1]` and no refusal. The
+      per-row hook was blind in the same call: with `individualHooks: true` the instance carried both
+      spellings at once, so the attribute it compared had not moved.
+
+      The answer: the trigger resolves every written key through `rawAttributes`, which knows both
+      names, and refuses outright any bulk write naming a key the model declares no attribute for.
+      Proved by enumerating five spellings across eight option combinations against the real table,
+      **before and after** — every combination that moved a settled run now refuses, a write that
+      touches no status is unchanged, and the one legitimate transition writer still lands
+      `affected=1`. Verified again independently in the main session against the original
+      reproduction.
+
+      **The lint exception I asked for was withdrawn in the same round, and that is my error to
+      record.** I put a whole-file exemption from every inline-disable rule to the person running the
+      session, to buy one line. The auditor pointed out the narrower form: a per-file
+      `no-param-reassign` setting buys the same line with no inline comment at all. The model left the
+      never-add list, and that list's own warning is true again. I should have looked harder before
+      asking ([[Q95]]).
+
+      **The defect family, across all three rounds and the sibling feature's seven:** a refusal
+      message, a docblock, a constant's comment or a test title stating something the code does not
+      do. The guards generally held; what was wrong was what the code said about itself. Round 3
+      alone rewrote four such sentences in one file, including a refusal message that named one of
+      the column's two names while the trigger compared against that same one — the message was
+      *describing the defect* and reading as a guarantee.
+
+      Two further round-3 findings, both closed: a test comment claiming to prove the deadline timer
+      was aborted, where `Promise.race` returns whether or not it was cleared (the abort is now
+      asserted on the real signal), and a shutdown abandoned at the deadline exiting `0`, which `pm2`
+      reads as clean (now exits `1`).
+
+      Final state at commit `323dc27`: `npx eslint .` clean, `tests/__tests__/` 2276 across 71 suites
+      and `tests/_orders/` 303 across 5, all green.
+      -->
 - [ ] 9. Verify the use cases again, against the built API
 
 ## Frontend gate

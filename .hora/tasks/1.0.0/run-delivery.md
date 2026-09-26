@@ -106,7 +106,42 @@ Constraint: a model call is never retried automatically (#scope, permanently out
       `namespace restfulapi.<version>`, mirroring `hor-type-interface`'s GraphQL shape. It is this
       repository's first REST type declaration, so `#run-list` and `#run-cancel` will copy it.
       -->
-- [ ] 4. Stub API
+- [x] 4. Stub API  <!-- skills: hor-stub-api (invoked in full — no digest exists, and see [[Q100]]), hor-restfulapi-architecture, hor-type-interface, hoc-classes-principles, hoc-classes-constructor, hoc-classes-notations, hoc-naming, hoc-jsdoc, hoc-methods, hoc-accessors, hor-backend-testing, hoc-jest; digests: hora-skills-ort-renchan 0.2.1, hora-skills-ort-core 0.4.0 -->  <!-- agents: 1; agent-time: ~900s; wall-time: ~1500s -->
+      <!--
+      One renderer for the one operation §12 declares, answering **a canned body per state the
+      contract distinguishes** rather than one specimen — queued, running, succeeded, failed and
+      canceled, each keyed by a run key that is 64 repetitions of that status's own master-row id.
+      The point of the plural is that checkpoint 6 does not meet the other four shapes for the first
+      time.
+
+      **The stub is a live route from the next start**, and that was verified in the main session
+      rather than taken on report ([[Q101]]). The REST layer has no barrel: the engine deep-loads
+      every `BaseRenderer` under `renderers/v1/` and registers it at boot. `passesFilter` defaults to
+      `false`, and the routes builder reads that as *run the filter handler* — the naming is inverted,
+      so the reading had to be checked — which puts the canned body behind the engine's own
+      `401`/`403`.
+
+      **Checkpoint 3's two undeclared shapes were used exactly as left**, neither re-decided:
+      `engine` as a nullable pair ([[Q92]]) and `steps[]` as seven fields with `rejections` excluded
+      ([[Q93]]). The step test asserts the exact seven-key shape, so a later leak of the internal
+      trace fails rather than passes.
+
+      **The equipped stub skill is GraphQL-only** ([[Q100]]) — it has no REST chapter, and the REST
+      layer has no stub-versus-actual split to migrate through. Its grand principle carried unchanged;
+      its "no conditionals" rule pulled against this checkpoint's "a canned answer per state", and
+      that was resolved with hash lookups and no branch anywhere, both reads made total so a key
+      reaching `Object.prototype` behaves as an unknown key does.
+
+      **Four spec silences recorded**: a step still running must carry an outcome code and no
+      vocabulary names one — a contradiction inside already-accepted schema ([[Q96]]); §20's result
+      has a table and no type declaration, so this stub now holds a specimen of a later feature's
+      payload ([[Q97]]); a decimal's wire type is decided by the dialect unless someone decides it,
+      and the local database is SQLite while live is MariaDB ([[Q98]]); and §20 says a value is
+      written in the asset owner's language while the file rule says English ([[Q99]]).
+
+      One lint finding here was a test asserting almost nothing — `expect.any(Object)` over the whole
+      result — now asserting the four-field shape §20 declares.
+      -->
 - [ ] 5. The modules the implementation needs
 - [ ] 6. Actual API
 - [ ] 7. Worker
