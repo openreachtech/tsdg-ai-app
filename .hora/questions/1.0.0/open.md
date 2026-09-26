@@ -3409,3 +3409,69 @@ Under the audit skill's own upload criteria — size validated, declared type tr
 
       Related: [[Q104]], where a required behaviour has no criterion standing over it, is the same
       shape one level up — a decision that is real in the code and absent from what the gate checks.
+
+
+## Q116 — "retried until it lands" names no bound, and a queue needs a number
+
+- category: undefined-detail
+- blocking: no
+- raised by: checkpoint 7 of `#run-delivery`
+
+§12's eighth criterion says a callback that fails to deliver **is retried**. Nothing in §12 or in
+`.hora/contracts/1.0.0/client-api.md` states an attempt count, a backoff, or what a client should
+expect once the attempts are spent.
+
+- [ ] open
+      **The reading taken**: seven attempts on an exponential backoff from one minute — roughly an
+      hour of trying. Argued from §7's "an hour's outage is tolerable" and from §12's own
+      reconciliation use case, which says the read-back is the route for a client that missed a
+      callback. Past the last attempt, that read-back is what remains.
+
+      **The number is asserted as a whole option hash**, the same way `#run-execution` asserts its
+      own `attempts: 1`, so it cannot drift silently — but it is this implementation's reading and
+      not something the spec states.
+
+      **Worth settling**, because a client integrating against this service has to know how long to
+      wait before falling back to polling, and today that answer exists only in a dispatcher.
+
+## Q117 — a client that refuses is retried exactly like a client that is down
+
+- category: undefined-detail
+- blocking: no
+- raised by: checkpoint 7 of `#run-delivery`
+
+§12 says a callback is retried until it lands and **draws no line between a far side that is
+unreachable and one that answers "no"**. So a `404` or a `410` from a registered callback URL is
+retried on the same schedule as a `503`.
+
+- [ ] open
+      **Anything that is not a `2xx` counts as not landed**, deliberately — deciding otherwise would
+      be this service inventing a rule the spec does not give it. A `4xx` is retried.
+
+      **What it costs**: a client that has permanently removed an endpoint is called seven times over
+      an hour for every settled run, and the delivery table fills with attempts that could never have
+      landed.
+
+      **If a permanent refusal is meant to stop the retrying, the spec has to say so** — and say which
+      statuses count as permanent, because that is the part an implementation must not guess.
+
+## Q118 — the job daemon now needs Redis at boot, where it needed nothing before
+
+- category: design
+- blocking: no
+- raised by: checkpoint 7 of `#run-delivery`
+
+`app/jobs/` held only its keep-file, so the daemon's folder scan bound **no queue** and the process
+started against nothing. `app/jobs/deliver-run-callback/` is the first real job, so from its next
+start the daemon opens a live BullMQ Worker — and therefore needs Redis reachable to start at all.
+
+- [ ] open
+      **This is the intended state, not a regression** — a daemon that listens to nothing is the
+      thing [[Q89]] has been recording as un-observable. It is recorded because it changes what a
+      deployment must have running before the worker process is considered healthy, and nothing in
+      §11, §12 or §23 says so.
+
+      **What it does not close**: [[Q89]] itself. §11's second criterion is about *a run's* job
+      surviving a restart, and this is a *callback* job. The daemon-plus-durable-queue mechanism
+      becomes observable for the first time; the run job §11 speaks of is still
+      `#asset-media-extraction`'s to supply.

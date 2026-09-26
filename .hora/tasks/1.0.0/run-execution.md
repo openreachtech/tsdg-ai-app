@@ -282,7 +282,65 @@ Constraint: a model call is never retried automatically (#scope, permanently out
       Final state at commit `323dc27`: `npx eslint .` clean, `tests/__tests__/` 2276 across 71 suites
       and `tests/_orders/` 303 across 5, all green.
       -->
-- [ ] 9. Verify the use cases again, against the built API
+- [x] 9. Verify the use cases again, against the built API  <!-- skills: none matched — this gate is a reading against the built code, and the delegate covers the shared UI/UX context, which this product declares no row for; digests: none -->  <!-- wall-time: ~1800s -->
+      <!--
+      Three use cases, walked against what is actually in the tree rather than against the criteria.
+      **Two are supported and unexercisable; the third is supported in a narrower sense than its own
+      words claim, and that gap is this gate's finding.**
+
+      Everything below was checked in the tree, not remembered. `find server/restfulapi/renderers`
+      shows no concrete POST renderer — only the base, which sits outside the scanned `v1/post/`.
+      `ls -a app/jobs/` showed only the keep-file at the time of this gate. And
+      `grep -rl 'extends BaseAiRunJobWorker|BaseAiRunJobDispatcher|BaseAiRunPostRenderer'` over
+      `app/` and `server/` returned nothing.
+
+      **"the client system gets its run key at once and the work happens afterwards, so its own
+      request never waits on a model"** — supported. The accept path obtains a dispatcher, opens a
+      transaction, saves the run, registers the dispatch on `afterCommit`, and answers; the work is
+      the worker's. Worth naming rather than glossing: the request *can* wait up to five seconds, on
+      the queue store being unreachable, before the transaction opens. That is not a model, so the
+      use case holds — but "never waits" is true of a model and not of everything.
+
+      **"a run that was accepted is still executed after the process that accepted it has
+      restarted"** — supported structurally, and this is [[Q89]] exactly. Redis is durable, the
+      daemon boots and auto-discovers, the accept path enqueues after commit. Nothing had been
+      written for it to discover. That changed mid-version when `#run-delivery`'s callback job
+      landed under `app/jobs/` — so the daemon now binds a real queue for the first time ([[Q118]])
+      — but §11 speaks of **a run's** job, and that is still `#asset-media-extraction`'s to supply.
+      Not claimed observable here.
+
+      **"a run that has been going too long stops by itself instead of holding a worker
+      indefinitely"** — **this is where the gate earned its place.** The fourth acceptance criterion
+      is kept in full: the race answers, the row is written `TIME_LIMIT_EXCEEDED`, and the losing
+      side can never reach that row because the status is the base worker's to write. Reading the
+      criteria alone, this passes.
+
+      Reading the **use case** does not. The loser was left "to settle or reject on its own", so a
+      work that ignores the race keeps running and keeps its worker slot — the daemon's concurrency
+      down by one for as long as that work lives, which for a work that never settles is forever.
+      That is precisely "holding a worker indefinitely". And there was **no channel at all** for the
+      work to be told: `executeAiRunWork()` received a body, a context and a parcel, and nothing it
+      could honour. `parcel.signal` is deliberately unused, for a reason that still stands — it is
+      BullMQ's, its firing conditions are undocumented, and a limit built on it would be a limit
+      nobody could state the behaviour of.
+
+      Recorded as [[Q113]] and **fixed within this version rather than deferred**, because
+      `#asset-media-extraction` is the first concrete `executeAiRunWork()` and adding the channel
+      afterwards means it is written against the shape that has none. The worker now raises a signal
+      of its own when the timer wins, and no docblock claims the slot is freed — nothing can make a
+      work honour a signal. What changed is that ignoring it became a choice.
+
+      **[[Q113]] stays open deliberately**, and not for want of code. The use case asks for
+      something no base class can deliver: the only mechanism that truly frees a slot is killing the
+      worker process, which takes the daemon's other in-flight runs with it. Either the wording
+      becomes what the system keeps, or a second mechanism is designed. That is `/hora-spec`'s.
+
+      **The gate's own limit, stated rather than implied:** no use case here could be driven end to
+      end, because this feature deliberately delivers the shape every run job takes and §11 says
+      outright that the concrete job belongs to the service. Every check above is a reading of built
+      code plus its unit tests. The first run that goes through this lifecycle for real will be
+      `#asset-media-extraction`'s, and its own gate is where these three become observable.
+      -->
 
 ## Frontend gate
 - [x] 10. Open the frontend  <!-- n/a: target names no frontend row -->
