@@ -144,7 +144,62 @@ Constraint: a model call is never retried automatically (#scope, permanently out
       does not exist; it is checkpoint 6's to wire, and it needs a decision first — a per-client
       limit means a column on a table belonging to an already-accepted feature.
       -->
-- [ ] 4. Stub API
+- [x] 4. Stub API  <!-- skills: hor-stub-api (invoked in full — no digest exists, and see [[Q100]]), hor-restfulapi-architecture, hor-type-interface, hoc-classes-principles, hoc-classes-constructor, hoc-classes-notations, hoc-naming, hoc-jsdoc, hoc-methods, hoc-accessors, hor-backend-testing, hoc-jest; digests: hora-skills-ort-renchan 0.2.1, hora-skills-ort-core 0.4.0 -->  <!-- agents: 1; agent-time: ~1610s; wall-time: ~2400s -->
+      <!--
+      **This stub goes further than any other in this version, and the departure was put to me
+      rather than taken quietly.** It does not only accept: it settles the run it accepted, with a
+      result body derived from the request.
+
+      **I accepted it, and the reason is that the alternative cannot satisfy a use case the spec
+      states and checkpoint 2 verified.** §20's fourth: *"the client system builds and demonstrates
+      its whole suggestion screen before any API key exists, because the stub answers
+      deterministically from the media the request names."* `AiRunAcceptedResponse` carries four
+      fields and **none of them is `fields[]`** — so an accept-only stub hands a client a run key
+      that reads back as queued forever and no suggestion screen at all. With the settle, a client
+      posts, gets a key, reads it back through the route `#run-delivery` made real, and sees a full
+      suggestion body with no Redis, no worker, no provider and no key.
+
+      **`hor-stub-api`'s "hardcoded literals only" is a GraphQL-shaped rule** ([[Q100]] records that
+      the skill has no REST chapter at all), and its grand principle — canned, shape-accurate, the
+      real class name and the real interface — is kept whole.
+
+      **And the departure is bounded at exactly the skill's real worry**, which is a client coming to
+      depend on pseudo-logic that later drifts. Every *identifier* on the surface follows from the
+      request — which `path` each field carries, which `mediaKey` it cites, which keys were
+      unreadable, the `mediaSignature` echoed — and those are **contract properties**, not behaviour.
+      Every *judgement* — the value, the state, the agreement, the confidence — is drawn from a
+      SHA-256 digest of the request, which nobody can mistake for a rule they could learn. That split
+      is what makes it a stub rather than a shadow implementation.
+
+      **Where the determinism stops is written into the class**, not left to be found: the run never
+      passes through `running`, so the waiting state cannot be demonstrated against this route; media
+      kind is ignored entirely, so a video is cited like a photo; `maxLength`, `unit` and number
+      range are not honoured; the weighting is a demonstration and not the formula, and **no
+      `confidenceMethodVersion` is recorded, deliberately**.
+
+      **The abstract dispatcher member was left unanswered rather than filled with a sham.** It names
+      the queue this service's runs go to, and there is no queue until checkpoint 7 — so the
+      statement stays unmade and its *consumer* is overridden instead, with the removal condition
+      written down exactly. The base's commit-time registration is untouched, because the rule it
+      encodes holds whether or not there is a queue.
+
+      **[[Q123]]'s province was read as a human-readable name, and the reading was made loud.** It is
+      written into each field's `reason` line, so a client sending a code sees `for an asset in 01.`
+      sitting in a sentence meant for a person, on its own demo screen, on day one. That is the
+      failure mode the question names — a silent mismatch — turned into a visible one.
+
+      **Writing the stub found a real inconsistency, which is what a stub is for** ([[Q127]]): the two
+      counts inside `agreement` had four spellings in this repository, and one route would have
+      answered both depending on which run was read. Settled in the main session in favour of the
+      columns, being what the real renderer will read from.
+
+      **Twelve of the seventeen criteria are not backed here and no test pretends otherwise** — the
+      reading count and index, the five dropping rules, majority settling, confidence computed rather
+      than read, the formula's version, the unreadable and unsupported reason codes, the photo cap,
+      and the rate limit. The unit says so itself, including that its "no suggestible field" case is
+      its own derivation and not the criterion, whose "no model call" half is vacuous in a class that
+      never calls one.
+      -->
 - [ ] 5. The modules the implementation needs
 - [ ] 6. Actual API
 - [ ] 7. Worker

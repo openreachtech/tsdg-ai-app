@@ -3733,3 +3733,37 @@ lesson had failed to travel between the two files, twice, in both directions.
       **Worth deciding at a later checkpoint, not retrofitted now.** Both are under audit closure and
       both are correct; a refactor of two audited classes buys structure at the price of re-opening
       what six and three rounds established.
+
+
+## Q127 — two counts inside one object had four spellings, and one route answered both
+
+- category: contradiction
+- blocking: no
+- raised by: checkpoint 4 of `#asset-media-extraction`
+
+`agreement` carries how many readings agreed out of how many. It was spelled four ways:
+
+| where | spelling |
+| :-- | :-- |
+| `types/restfulapi/assetMediaExtractionResult.d.ts` (checkpoint 3) | `agreedCount` / `readingCount` |
+| `ai_run_field_outcomes`, the columns | `agreed_reading_count` / `total_reading_count` |
+| the development seeder's specimen result body | `agreedReadingCount` / `totalReadingCount` |
+| `#run-delivery`'s GET stub, before it was replaced | the seeder's |
+
+**The contract fixes no key names at all**, so this was a repository inconsistency rather than drift.
+
+- [x] settled in the main session at checkpoint 4
+      **The consequence was live, not theoretical**: `GET /v1/ai-runs/:runKey` would have answered
+      `agreedReadingCount` for the seeded run and `agreedCount` for any run the stub created — **from
+      the same route**, with the difference visible only to a client that happened to read both.
+
+      **The columns won**, being what the real renderer will read from and the one spelling three of
+      the four already agreed on. The type was corrected, and the stub, and both of its test files.
+
+      **Worth naming why it was found here.** Three checkpoints had written against one spelling or
+      the other without either noticing; the stub found it because it was the first thing to answer a
+      result body on the same route as the fixtures. That is what a stub is for, and it is a better
+      argument for the stub going as far as it did than any principle.
+
+      **Still open in the contract**: it names the field and not its keys. Worth a line there, since
+      a client generates from it.
