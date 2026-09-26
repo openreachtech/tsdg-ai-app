@@ -3475,3 +3475,130 @@ start the daemon opens a live BullMQ Worker — and therefore needs Redis reacha
       surviving a restart, and this is a *callback* job. The daemon-plus-durable-queue mechanism
       becomes observable for the first time; the run job §11 speaks of is still
       `#asset-media-extraction`'s to supply.
+
+
+## Q119 — an outbound callback's signature is a valid inbound request's signature
+
+- category: design
+- blocking: no
+- raised by: checkpoint 8, round 1, of `#run-delivery`
+
+`AiRunCallbackSigner` builds its payload and its digest through the **same** class that verifies an
+inbound request. That borrowing is right — a second implementation would be self-consistent and
+neither side would catch the drift — and it is argued for in the signer's own docblock.
+
+**The consequence is not stated anywhere.** A `(timestamp, body, signature)` triple this service
+*produces* on an outbound callback is a valid triple for an *inbound* request under the same secret,
+inside the 300-second window. **No byte distinguishes the direction.**
+
+- [ ] open
+      **What limits it today is an accident, not a guard.** The signature binds that exact body, and
+      a callback's body is a run-response JSON: no route accepts it — the run-creating POST's
+      validator refuses it, and a GET carries no body so its raw body reads as unsigned. So the
+      protection is that the body happens not to parse as a request, which is not a property anybody
+      chose and not one a later route is obliged to preserve.
+
+      **It becomes material together with [[Q120]]**: a third party that receives a redirected
+      callback holds a validly signed credential of that client's.
+
+      **The fix is a contract change and belongs to `#run-contract`**, not here: a direction constant
+      inside the signed payload, or a header of its own. Recorded rather than taken, because
+      changing what is signed changes what every existing client must compute.
+
+## Q120 — the registered prefix is the only thing bounding where a callback goes
+
+- category: undefined-detail
+- blocking: no
+- raised by: checkpoint 8, round 1, of `#run-delivery`
+
+§12 says a callback is refused "unless its URL starts with" the client's registered prefix, and
+**that is the whole of what the spec asks.** Three consequences follow, none of which the spec
+addresses:
+
+- **`http:` is allowed unconditionally.** Nothing forces a production deployment to register only
+  `https:` prefixes, so a plaintext prefix would push a run's result — which §7 classes as personal
+  data at its highest level — over the wire in the clear, with nothing objecting.
+- **No private, loopback or link-local address is refused.** A prefix naming `127.0.0.1`, a
+  link-local metadata address or an internal host is perfectly valid to this check.
+- **A prefix with no trailing separator matches a sibling host.** A registered
+  `https://client.example` (written without the trailing slash, which is natural) matches
+  `https://client.example.attacker.invalid/`. Narrowed in practice because a path-less prefix is
+  normalized to carry a trailing slash; a prefix with a partial path is the exposed shape.
+
+- [ ] open
+      **The URL checks that *are* there were tested hard and hold**: credentials before the host, a
+      scheme downgrade in the original URL, a path that normalizes out of the prefix, punycode, case,
+      default ports, and an empty or unparseable prefix refusing everything. Those are not in
+      question.
+
+      **What is in question is the spec's silence about the destination itself.** An allow-list of
+      prefixes is an allow-list of *strings*; it says nothing about what the string resolves to.
+      Deciding otherwise — refusing plaintext in live, refusing private address space, requiring a
+      prefix to end at a path separator — is policy this service would be inventing.
+
+      Worth settling in §12 before a deployment discovers it. Related to [[Q119]] and to the redirect
+      defect that made this audit round find it.
+
+
+## Q121 — video and audio must end differently, and the built check cannot tell them apart
+
+- category: contradiction
+- blocking: no
+- raised by: checkpoint 1 of `#asset-media-extraction`
+
+§20 asks for two different endings for the two kinds this version does not handle:
+
+- *"a video URL among the media is **refused** with the unsupported reason code, rather than being
+  silently skipped"*
+- *"**audio** among the media is **ignored**"*
+
+`#media-fetch` built the distinction as `is_active` on `ai_run_media_categories`, and
+`AiRunMediaCategoryInspector` reads that flag. **It is `false` for both video and audio**, so the
+check answers the same for each — verified by reading the inspector and the master seeder.
+
+**Refused, ignored and handled are three outcomes. A boolean carries two.**
+
+- [ ] open
+      The flag was the right shape for the question `#media-fetch` was asked ([[Q94]]): §18 says the
+      two unhandled kinds exist "so a request naming one is refused by name rather than ignored",
+      which reads as one behaviour for both. §20 then asks for two.
+
+      **The two sections disagree, and §18 is the one already built.** §18's wording even contains
+      the word §20 uses for audio — "rather than ignored" — so the collision is not a subtlety.
+
+      **What closing it looks like:** the master gains a column naming what this version does with a
+      kind (handle / refuse / ignore) and the inspector reads that instead of a boolean, which keeps
+      the property [[Q94]] was for — a fourth kind is a row, not a code change. The alternative is
+      §20 dropping one of its two criteria.
+
+      **Where it bites:** `#asset-media-extraction`'s step 2 has to act on the difference, and the
+      only thing it can ask today answers one word for both. This needs deciding before that step is
+      written, not after.
+
+## Q122 — rate limiting is asked for once, in one criterion, and nothing anywhere implements it
+
+- category: undefined-detail
+- blocking: no
+- raised by: checkpoint 1 of `#asset-media-extraction`
+
+§20's last criterion: *"a client that has exceeded its rate limit is refused, and no run is created
+and no model is called."* Searching the whole of `specs/1.0.0/spec.md` for "rate limit" returns
+**that line and nothing else**.
+
+`express-rate-limit` is a dependency in `package.json` and **no limiter is wired anywhere** — a grep
+over `server/` and `app/` finds no call site. A previous audit round noted the same absence from the
+other direction.
+
+- [ ] open
+      **So this feature owns a criterion whose subject does not exist yet**, and the spec gives it
+      nothing to build against: no window, no count, no per-client or per-route scope, no answer for
+      what a refused caller is told, and no statement of whether the limit belongs to this route or
+      to every run-creating route.
+
+      **The criterion is specific about one thing and it is the part that matters**: the refusal
+      happens *before* a run is created and *before* a model is called. That rules out limiting
+      inside the job and places it at the request, which is where the dependency already sits unused.
+
+      **Worth settling before checkpoint 5**, because "the client's rate limit" implies a figure
+      stored per client — and `api_clients` carries no such column, so either the limit is one
+      figure for everyone, or this is also a schema change.
