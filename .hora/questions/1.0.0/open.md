@@ -4184,3 +4184,76 @@ what it is, and it does.
       serve, so refusing outright is not obviously right. What is wrong is only that nothing
       currently makes the choice visible.
 
+
+## Q136 — a field path over 191 characters is accepted, runs, and is then silently dropped
+
+- category: undefined-detail
+- blocking: no
+- raised by: checkpoint 8 (scoped re-run) of `#asset-media-extraction`
+
+The accept-time bounds added for [[Q131]]'s sibling cover how *many* `fieldSchema` entries a request
+may carry and how long `mediaSignature` may be. They do not bound what is **inside** an entry: a
+`path` and an `options[]` are limited only by the 10 MB body.
+
+That is not a resource problem — the audit measured both linear and non-multiplicative. It is a
+**truthfulness** problem. A path longer than 191 characters is accepted, the run executes, and then
+`AiRunFieldOutcomeRecorder` and `AiRunStepRecorder` both refuse it against their 191-character
+`FIELD_PATH_PATTERN` — so the field settles and is **silently missing** from what the client reads
+back. No refusal, no reason code, no line in the trace.
+
+- [ ] open
+      **The house rule that would cover it is already written**, in
+      `AiRunCommonFieldsInputValidator`'s own header: *"a value too long for its column is a value
+      the schema does not accept, and the contract answers that `422`"*. Five caller strings are held
+      to 191 for exactly this reason. A field path is a sixth, and nothing holds it.
+
+      **It predates the bounds work** — the recorders have always refused a long path — so this is
+      not a regression, and the door rule that would fix it is one more entry in the validator the
+      same work created.
+
+      **What needs deciding is only whether the drop should become a refusal**, since answering
+      `422` would refuse requests the service accepts today. The alternative — reporting the field
+      as unsettled with a reason — keeps the run but needs a reason code the contract does not have.
+
+
+## Q137 — every declared medium is written before the count limit is asked
+
+- category: design
+- blocking: no
+- raised by: checkpoint 8 (scoped re-run) of `#asset-media-extraction`
+
+`AiRunMediaPreparer#prepareAiRunMedia()` calls `recordDeclaredAiRunMedia()` — a bulk insert of one
+row per declared medium — and only afterwards hands the rows to `AiRunMediaCollector`, which asks
+the 12-count limit and raises `MEDIA_LIMIT_EXCEEDED`. Verified by reading: the write is at line 203,
+the collector at 214, the refusal at 221.
+
+So a request declaring 50,000 media writes 50,000 rows and then fails the run. The `media[]` array
+is bounded by nothing at the door — only by the 10 MB body, which allows on the order of 66,000
+descriptors.
+
+- [x] recorded rather than fixed, and the reason is a comparison
+      **The door is the wrong place for this bound, which is why it was not added there.** §20's
+      criterion asks that a request carrying more photographs than the limit be refused *"with the
+      limit named in the reason's parameters"* — that is a **run failure** carrying a reason code
+      and parameters, not an HTTP refusal, and checkpoint 6 already established that those
+      parameters cannot travel in a refusal envelope. Bounding `media[]` at the door would answer
+      `422` and contradict the criterion.
+
+      **The right fix is an ordering one**: ask `AiRunMediaLimitInspector#isWithinMediaCountLimit()`
+      before writing, since it takes a count and nothing else, and raise the same failure with the
+      same parameters. The criterion is preserved exactly and no row is written for a request that
+      will be refused.
+
+      **It is recorded rather than done, and the comparison is the justification.** The defect this
+      audit round was called for — one request holding the shared queue for tens of minutes — denied
+      service to **every** client and was fixed. This one writes rows for **its own** run, which then
+      fails; it needs valid credentials, it is bounded by the body limit, and nothing another client
+      does is affected. Fixing it means reopening checkpoint 5 a fourth time.
+
+      **One thing to preserve when it is fixed**: the scan at `AssetFieldReadingInspector:700`
+      (`sourceMediaKeys.every(it => sentMediaKeys.includes(it))`) is safe **because step 2 throws
+      `MEDIA_LIMIT_EXCEEDED` and ends the run**, not because anything at the door bounds the
+      declared list — `sentMediaKeys` is what the request declared, deliberately, so a photograph
+      sent but unreadable still counts as sent. Anyone relaxing that step-2 throw would remove the
+      only thing keeping that scan bounded.
+

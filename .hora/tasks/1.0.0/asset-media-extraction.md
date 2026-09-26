@@ -423,8 +423,55 @@ Constraint: a model call is never retried automatically (#scope, permanently out
       Verified green on three consecutive full runs, the last on the exact tree committed:
       `npx eslint .` clean, 3394 across 100 suites and 419 across 7.
       -->
-- [ ] 8. Security audit  <!-- cleared: 1; reopened-by: 9 -->  <!-- skills: hor-security-audit (invoked in full, not through a digest) -->  <!-- agents: 1; agent-time: ~471s; verify-time: ~471s; wall-time: ~700s -->
+- [x] 8. Security audit  <!-- skills: hor-security-audit (invoked in full, not through a digest) -->  <!-- cleared: 1; reopened-by: 9; agents: 3; agent-time: ~2656s; verify-time: ~2656s; wall-time: ~3200s -->
       <!--
+      **Three runs over this gate, and the middle one is why the record is worth reading.**
+
+      Run 1 (before checkpoint 9 sent the feature back): 0 HIGH, 1 MEDIUM, 1 LOW, both accepted and
+      recorded as [[Q130]] and [[Q131]].
+
+      Run 2, repeated **whole** because checkpoint 9 had changed 3-7 underneath it: **it failed.**
+      The fixture built to satisfy §20's fourth use case had opened a reproduced availability
+      defect — the whole media signature and the read photographs were digested **once per field**,
+      against a `fieldSchema` and a `mediaSignature` that nothing bounded at accept time. One
+      authenticated request could hold this service's own queue for tens of minutes of synchronous
+      CPU, which the 300-second run limit cannot interrupt. Measured by two parties independently
+      before the fix and by the main session after it: 1000 fields against a 100 KB signature fell
+      from 159 ms to 8 ms, and the cost stopped depending on the signature at all.
+
+      Run 3, **scoped to the fix** as the rule requires of a re-run that follows one rather than a
+      reopening: both findings resolved and reproduced as resolved, 0 HIGH / 0 MEDIUM / 0 LOW.
+
+      **What run 3 checked rather than accepted, at the main session's request.** That no
+      caller-controlled input still multiplies against another — verified one axis at a time, with
+      the body limit capping their sum. That the bounds cannot be stepped around — a 200,000-deep
+      array, a `String` object, a `{toString}` object, a number, `false` and `0` are each refused in
+      under 0.08 ms, before any row, transaction or queue connection. That the digest has no
+      reachable collision — every non-string collapses onto the "absent" digest, but every one of
+      them is refused at the door, leaving only `null` and `undefined`, which are the same request.
+      And that the `Map`/`Set` rewrites preserved `.find`'s duplicate-first-wins: its own 4,000-case
+      differential, probed at `__proto__`, `constructor`, `toString` and `''`, found 0 mismatches.
+
+      **Three INFO observations, and one of them was mine.** `AssetMediaExtractionPostRenderer`'s
+      docblock still said the `422` and `429` lines were absent from the contract and "reported as
+      drift" — untrue, because this session had written all three into it. Corrected, and swept for
+      siblings. [[Q136]] records that a field path over 191 characters is accepted, runs, and is then
+      silently dropped by two recorders. [[Q137]] records that every declared medium is written before
+      the count limit is asked, with the reason it is recorded rather than fixed.
+
+      **A correction worth keeping for whoever touches step 2.** The scan at
+      `AssetFieldReadingInspector:700` is bounded **because step 2 throws `MEDIA_LIMIT_EXCEEDED` and
+      ends the run**, not because the door bounds the declared media list — it does not.
+      `sentMediaKeys` is what the request declared, so a photograph sent but unreadable still counts
+      as sent. Relaxing that throw would remove the only thing holding that line.
+
+      **A deployment note, not a defect**: the bounds live at the door and the worker re-reads the
+      stored body without re-checking, so any run queued before this change still executes
+      unbounded. Retry amplification is not a concern — the dispatcher sets `attempts: 1`.
+      -->
+      <!--
+      **Run 1's own record**, kept as written.
+
       Read-only audit over this feature's own 64-file change set, not the repository — the
       repo-wide pass is the version sweep's. **0 HIGH, 1 MEDIUM, 1 LOW**, both accepted and
       recorded rather than fixed, which is the second clause of this checkpoint's exit condition.
@@ -466,8 +513,46 @@ Constraint: a model call is never retried automatically (#scope, permanently out
       operator log), the new master seeders' privileges, job-body mass assignment, and whether the
       new failure parameters can carry anything internal out to a client.
       -->
-- [ ] 9. Verify the use cases again, against the built API  <!-- agents: 0; wall-time: ~900s (first attempt, not met) -->
+- [x] 9. Verify the use cases again, against the built API  <!-- cleared: 1; reopened-by: 9; agents: 0; wall-time: ~2400s -->
       <!--
+      **Second attempt. Met.** The first is recorded below and is why checkpoint 5 was reopened.
+
+      Walked operation by operation against real shapes, not against intent: `POST
+      /v1/asset-media-extractions` answers `202` with a run key, the job executes the run, and the
+      settled body reaches the client two ways — `GET /v1/ai-runs/:runKey` and the terminal
+      callback both build it with `AiRunResponseBuilder`, so there is one shape and two deliveries
+      rather than two shapes that must be kept agreeing.
+
+      **Use case 1 — a value per field, with a confidence, a one-line reason and the photographs it
+      came from.** Structurally met: every settled field carries `value`, `suggestionConfidence`,
+      `reason` and `sourceMediaKeys`. The "in Vietnamese" clause is **not** met by anything built,
+      and that is [[Q133]] rather than a failure here: `reason` is passed through verbatim from the
+      model, and the prompt the service composes says "the language the asset owner reads", which
+      is §20's own other sentence.
+
+      **Use case 2 — an asset type with no suggestible field.** Met, and asserted exactly: run
+      10630105 answers `{"fields":[],"missingFieldPaths":[],"unreadableMediaKeys":[],"mediaSignature":"…"}`
+      with the "no model call" half proved by a spy rather than described.
+
+      **Use case 3 — a field the photographs cannot show.** Met: `missingFieldPaths` carries
+      `attributes.frontDirection`, a select the request bounded to no options, and it carries no
+      value at all. The `date` field beside it is correctly **not** missing, because step 1 never
+      offered it — the distinction the criterion exists to make.
+
+      **Use case 4 — the whole screen before any API key exists.** Met, and this is what the first
+      attempt failed on. Run 10630106 settles three fields on the keyless driver with three
+      distinct field states, three distinct confidences and a missing field beside them,
+      deterministically: same request answers the same way, different photographs and a different
+      signature each answer differently.
+
+      **One honest limit on how much that demonstrates**: in this case all three fields cite the
+      same photograph. Nothing requires them to differ — `sourceMediaKeys` being a subset of what
+      was sent is the criterion, and it holds — but a screen whose every field points at one photo
+      shows less than a real one will. It is a property of this case's draw, not of the design.
+      -->
+      <!--
+      **First attempt, not met** — kept as written, because it is why checkpoint 5 was reopened.
+
       **Not met on the first attempt, and it sent the run back into checkpoint 5.**
 
       Three of §20's four use cases hold against the built API. The fourth does not: *"the client
