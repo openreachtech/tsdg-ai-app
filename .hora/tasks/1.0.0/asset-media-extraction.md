@@ -200,8 +200,54 @@ Constraint: a model call is never retried automatically (#scope, permanently out
       its own derivation and not the criterion, whose "no model call" half is vacuous in a class that
       never calls one.
       -->
-- [ ] 5. The modules the implementation needs  <!-- cleared: 1; reopened-by: 9 -->  <!-- skills: hoc-classes-principles, hoc-classes-constructor, hoc-classes-notations, hoc-naming, hoc-jsdoc, hoc-methods, hoc-accessors, hor-constant-definition, hor-type-interface, hor-sequelize-model, hor-external-api-client, hor-backend-testing, hoc-jest; digests: hora-skills-ort-renchan 0.2.1, hora-skills-ort-core 0.4.0 -->  <!-- agents: 1 (cut off); wall-time: ~5400s -->
+- [x] 5. The modules the implementation needs  <!-- skills: hoc-classes-principles, hoc-classes-constructor, hoc-classes-notations, hoc-naming, hoc-jsdoc, hoc-methods, hoc-accessors, hor-constant-definition, hor-type-interface, hor-sequelize-model, hor-external-api-client, hor-backend-testing, hoc-jest; digests: hora-skills-ort-renchan 0.2.1, hora-skills-ort-core 0.4.0 -->  <!-- cleared: 1; reopened-by: 9; agents: 2; agent-time: ~12500s; wall-time: ~14400s -->
       <!--
+      **Second pass, after checkpoint 9 sent the run back for the module that was missing.**
+
+      `StubAssetFieldReadingSupplier` is the service-owned fixture the stub driver's own docblock
+      said this service owed. It draws deterministic readings from a digest of the media signature,
+      the photographs actually read, the field path and its kind — through the existing
+      `StubAnswerDigester`, not a second one.
+
+      **The seam sits inside `AssetMediaReadingFetcher`, between the model call and the recording
+      of it**, for three reasons worth keeping: the record then holds the findings the run went on
+      to settle rather than disagreeing with them; the draw happens once per run rather than once
+      per reading, so the three readings agree and step 5 can settle anything at all; and the
+      driver is recognised by `aiModelProcessor.aiModel`, the key the catalog itself resolves by,
+      never by class — so nothing outside a test imports the stub driver.
+
+      **Nothing is bypassed.** The fixture answers a tool call in a vendor's shape, and steps 4, 5
+      and 6 run over it for real: values outside the schema are still dropped, consensus is still
+      counted, and confidence is still scored from observed agreement. It is recognisable as a
+      fixture from the client's side — every reason begins `[stub] ` and text values read
+      `stub-value-<n>` — because a number field's value is a number and a select's is the caller's
+      own option, so neither can carry a mark.
+
+      **The agent corrected the main session's evidence, and the correction matters more than the
+      defect.** The exhibit cited for "the driver settles nothing" was a run that stands in the
+      fetcher deliberately, for a question about audio, and says so in its own comment. The
+      diagnosis held — `StubAiModelProcessor#buildFunctionCall()` answers `arguments: {}` — but the
+      proof did not. Recorded in [[Q129]] as the third instance of this version's dominant family:
+      **no test in the repository exercised step 3 on that driver at all**, because every case
+      reaching the reading step stood the reading step in. That is why checkpoint 5 passed over it
+      the first time, and why run 10630106 — a whole run on the keyless driver with only the
+      network and the workspace stood in — now exists.
+
+      **[[Q133]] was answered one way by the fixture and left open for a person**: the reason reads
+      marked English, on the ground that §20's two statements conflict only for a fixture, and "no
+      display wording of its own" is the safer half.
+
+      **[[Q134]]**: the first full run after this work died of `Jest worker ran out of memory` at
+      jest's default 11 workers against 4.3 GB free — eleven suites reported failed, only one test
+      actually failing, most in files nothing had touched. Settled by measurement rather than by
+      retrying: the same tree passes twice at `--maxWorkers=4 --workerIdleMemoryLimit=512MB`.
+
+      Verified green on two consecutive full runs: `npx eslint .` clean, 3497 across 102 suites and
+      422 across 7.
+      -->
+      <!--
+      **First pass**, whose run record is folded into the line above.
+
       **The agent was killed mid-work by a session rate limit and its report was lost**, so the
       decisions below were read out of the code rather than taken on its word, and the main session
       finished the checkpoint.

@@ -3931,6 +3931,26 @@ over `sequelize/seeders/` at `HEAD` returned nothing at all.
       a test, which is the one place a false statement is also a passing check. A test that
       canonises a gap does not merely fail to catch it — it defends it against the next reader.
 
+      **A third instance, found at checkpoint 9 and worse than the first two.** A run on the
+      keyless driver settled no fields at all, because `StubAiModelProcessor#buildFunctionCall()`
+      answers `arguments: {}` — correctly, by its own design. What let that reach checkpoint 9 is
+      that **no test in the repository exercised step 3 on that driver at all**: every case that
+      reached the reading step stood the reading step in, each for its own good local reason. The
+      path with the only driver a default installation runs on had no coverage, so checkpoint 5
+      passed over it and checkpoint 6's criteria map did too.
+
+      **The main session's own first exhibit for this was wrong**, and the correction is the point.
+      It cited a settled run with an empty body as proof the driver answered nothing; that case
+      stands in the fetcher deliberately, for a question about audio, and says so in its own
+      comment. The conclusion held and the evidence did not — which is the same error as trusting a
+      green suite: a result that agrees with the diagnosis is not the same as a result that tests
+      it.
+
+      **What the three instances share is not carelessness.** A barrel nobody imported, a seeder
+      nobody wrote, and a path every test stood in for: in each, something existed, nothing ran it,
+      and every signal available said green. Unit counts, lint and a passing suite are all blind to
+      it by construction.
+
 
 ## Q130 — fetched media is trusted to be what its `content-type` says it is
 
@@ -4062,7 +4082,65 @@ rather than of this service.
       Vietnamese writes it today. What it needs is one sentence saying which of the two is the
       promise.
 
-      **It reaches the fixture now being built**, which has to put *something* in `reason` with no
-      model involved, and whatever it writes will read as this service's answer to a question the
-      spec asks twice.
+      **It reached the fixture, and the fixture answered it one way.** `StubAssetFieldReadingSupplier`
+      writes `[stub] demonstration value for <path>, supplied without a model call.` — English, and
+      marked.
+
+      **The reading behind that choice is worth keeping.** The two statements do not conflict for a
+      *model*: the model writes Vietnamese and the service writes no display wording of its own,
+      which is what line 861's second sentence says. They conflict only for a **fixture**, because
+      a fixture is the service writing something. Resolved toward "no display wording of its own":
+      a polished Vietnamese sentence on a demo screen is indistinguishable from a model's answer,
+      and is exactly the text a client ships by accident. A marked English line cannot be.
+
+      **The other reading is real** — a demo screen with English reasons shows the wrong line
+      lengths and no diacritics, so it demonstrates a layout the product will not have. If that
+      wins, the change is one template string plus the recorded reasons in three test files.
+
+      **What still needs one sentence from a person** is which of line 861 and line 877 is the
+      promise to a client. The fixture's choice does not settle that, and was not meant to.
+
+
+## Q134 — the suite no longer fits this machine's default worker count
+
+- category: lacked-environment
+- blocking: no
+- raised by: checkpoint 5 (reopened) of `#asset-media-extraction`
+
+A full run died rather than failed: **`Jest worker ran out of memory and crashed`**, with 14
+`UNKNOWN: unknown error, read` at `FileCache.readFileBuffer` beside it. Eleven suites were reported
+failed while only **one test** failed, which is the signature — ten suites never ran a test, and most
+were files no recent change had touched (`ApiClientSecretCipher`, `RevokingSessionResult`,
+`AdminGraphqlServerEngine`). The single test failure was a broken SQLite query, a consequence of the
+same collapse rather than a defect of its own.
+
+**The configuration it died under**, measured rather than assumed:
+
+| | |
+|---|---|
+| cores | 12 |
+| memory, total | 15.8 GB |
+| memory, free at the time | **4.3 GB** |
+| `maxWorkers` | not set in `jest.config.js`, so jest's default of cores − 1 = **11 workers** |
+| per-worker memory ceiling | none set |
+| suites | 102, up from 100 the previous run |
+
+- [ ] open
+      **It was settled by measurement, not by retrying.** The same tree run with
+      `--maxWorkers=4 --workerIdleMemoryLimit=512MB` passed twice: 3497 tests across 102 suites and
+      422 across 7, no crash. Eleven workers against 4.3 GB free is the whole of it — nothing was
+      skipped, loosened or deleted to get there.
+
+      **Why it is worth a record rather than a shrug.** The failure reads exactly like a real one:
+      a red suite, a named test, a SQLite error. Anyone who trusts the first screen of that output
+      will go looking for a defect in `#run-delivery`'s callback model, which is untouched and
+      fine. The next person to add a suite will meet it again, closer to the edge.
+
+      **What is not decided here is the fix**, because it is a shared setting. `maxWorkers` in
+      `jest.config.js` would cap parallelism for every machine including CI, which may have memory
+      to spare — unlike the `testTimeout` added earlier in this version, raising which cannot break
+      a passing test, capping workers trades wall-clock everywhere to fix one machine.
+      `workerIdleMemoryLimit` recycles a worker instead of capping how many there are, and is the
+      likelier answer. Either is a change to how every run of this repository behaves, so it is a
+      person's call.
 
