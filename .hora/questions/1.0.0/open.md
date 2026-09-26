@@ -3710,6 +3710,21 @@ explicitly does **not** bound the run.
       input, not as a comment they may or may not open. The spec is silent on whether a run's media
       are fetched sequentially or concurrently, and that silence is what the caller has to resolve.
 
+- [x] answered at checkpoint 5 of `#asset-media-extraction`
+      **Sequential, with a budget the collector spends down** — one of the three shapes this question
+      laid out, and the one that avoids the memory cost the other would have bought. `AiRunMediaCollector`
+      carries a `mediaBudgetMilliseconds` and hands each fetch what is left of it.
+
+      **What makes it honest rather than merely bounded**: a medium the budget never reached is still
+      named in the collection. A run that gave up halfway says which files it did not fetch, so a
+      caller can tell that apart from a file that was fetched and could not be read — which is the
+      distinction §18's fourth criterion exists to make.
+
+      **The residual the question named is closed for this caller and not in general**: nothing
+      asserts the arithmetic, and a second caller built later could still fetch twelve sequentially
+      at the full per-fetch bound. The paragraph in `MediaFetchClient` remains the only thing saying
+      so.
+
 ## Q126 — two classes now duplicate a redirect-following tool three times over
 
 - category: design

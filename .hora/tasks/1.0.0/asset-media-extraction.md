@@ -200,7 +200,54 @@ Constraint: a model call is never retried automatically (#scope, permanently out
       its own derivation and not the criterion, whose "no model call" half is vacuous in a class that
       never calls one.
       -->
-- [ ] 5. The modules the implementation needs
+- [x] 5. The modules the implementation needs  <!-- skills: hoc-classes-principles, hoc-classes-constructor, hoc-classes-notations, hoc-naming, hoc-jsdoc, hoc-methods, hoc-accessors, hor-constant-definition, hor-type-interface, hor-sequelize-model, hor-external-api-client, hor-backend-testing, hoc-jest; digests: hora-skills-ort-renchan 0.2.1, hora-skills-ort-core 0.4.0 -->  <!-- agents: 1 (cut off); wall-time: ~5400s -->
+      <!--
+      **The agent was killed mid-work by a session rate limit and its report was lost**, so the
+      decisions below were read out of the code rather than taken on its word, and the main session
+      finished the checkpoint.
+
+      Nine classes, one per step §20 names plus three that orchestrate what `#media-fetch` built:
+      `SuggestibleFieldSelector`, `AiRunMediaCollector` / `AiRunMediaProviderUploader` /
+      `AiRunMediaRecorder`, `AssetMediaReadingFetcher`, `AssetFieldReadingInspector`,
+      `FieldConsensusResolver`, `AssetFieldConfidenceScorer`, `AssetMediaExtractionResultBuilder`.
+      **The three orchestration classes sit under `app/aiRunMedia/` rather than under this feature's
+      folder**, which is right: step 2 arranges pieces that belong to the media concept, not to the
+      service that uses them.
+
+      **[[Q125]] is answered, and the answer is one of the three the question laid out.** The
+      collector carries a `mediaBudgetMilliseconds` and spends it down one medium at a time — and **a
+      medium it never reached is still named**, because a caller that cannot tell an unreadable file
+      from one nobody got to has been told nothing.
+
+      **[[Q113]] is honoured, and the ordering is the part that matters.** The signal is asked
+      **before** each reading rather than after: a run whose time limit has already won is a run whose
+      row is settled, so a provider call made then is billed against nobody waiting for it.
+
+      **Three things the repository's own rules caught, which the lost report would have called
+      style.** The model's answers were named for the word §20 uses — `readingItem` — and `item` is a
+      forbidden suffix; the right name was already in that sentence, since each is a reading **of one
+      field**, and `reading` was taken 94 times over. 148 identifiers renamed to `fieldReading`. Two
+      reduce callbacks carried their guards inside the callback where a conditional may not go —
+      including the signal check itself — and each guard is now a method whose early returns say only
+      which readings and which media add nothing. And a clock reached as `dateClient` is now
+      `DateCtor`, the way every other constructor seam here is named.
+
+      **Three `_orders` test files existed and none of them ran.** The barrels that define this
+      folder's order had not been told about them, which is exactly the trap the testing convention
+      warns about and the reason it asks for that import to be written by hand. Wiring them took
+      `_orders` from 375 tests to 400 — twenty-five tests that had been written and never executed.
+
+      **One thing the interruption left undone**: `AiRunMediaProviderUploader` has no test at all, in
+      either tree. Carried into checkpoint 6 rather than left to be noticed.
+
+      **A trap in my own verification, worth recording.** Running `./test.sh --seeded tests/_orders/`
+      does **not** tear down and migrate — it seeds onto whatever is already there. Two such runs in
+      a row produced five then eight failures on unique-id violations, which read as a real defect
+      and were an artifact of the invocation. The full `./test.sh` rebuilds, and it was green on two
+      consecutive runs.
+
+      Final state at `52ebf86`: `npx eslint .` clean, 3268 across 90 suites and 400 across 6.
+      -->
 - [ ] 6. Actual API
 - [ ] 7. Worker
 - [ ] 8. Security audit
