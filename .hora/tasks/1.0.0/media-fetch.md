@@ -76,7 +76,41 @@ Constraint: a model call is never retried automatically (#scope, permanently out
       -->
 
 ## Backend gate
-- [ ] 3. DB and API schemas
+- [x] 3. DB and API schemas  <!-- skills: hor-database-design, hor-sequelize-migration, hor-sequelize-model, hor-sequelize-seeder, hor-type-interface, hor-constant-definition, hoc-naming, hoc-jsdoc, hoc-classes-principles, hoc-classes-constructor, hoc-classes-notations, hoc-methods, hoc-accessors, hor-backend-testing, hoc-jest; digests: hora-skills-ort-renchan 0.2.1, hora-skills-ort-core 0.4.0 -->  <!-- agents: 1; agent-time: ~910s; wall-time: ~1500s -->
+      <!--
+      Three tables exactly as §18 declares them, run in parallel with `#run-delivery`'s own
+      checkpoint 3 on one branch, with the migration numbers (`000022`-`000024`) and the row-id
+      prefix (`104`) handed down before either started so the two could not collide. They did not.
+
+      **The unit found a defect the default wiring would have carried.**
+      `inflection.singularize('AiRunMedia')` is **`AiRunMedium`**, and Sequelize builds both the
+      foreign key and the loaded property name from that singular — so left to inference,
+      `ProviderUploadedFile.belongsTo(AiRunMedia)` would resolve to `AiRunMediumId`, a column no
+      table has. Both the key and the alias are now stated, verified against `sequelize@6` in an
+      isolated probe rather than assumed. **Consequence for checkpoints 5-7, written into a comment
+      and pinned by a test: an include must read `include: [{ model: AiRunMedia, as: 'AiRunMedia' }]`,
+      never `include: [AiRunMedia]`.** `tableName` infers correctly and is pinned too, because a
+      silent resolution to `ai_run_medias` would break every read.
+
+      **One reading taken where §18 is silent** ([[Q94]]): `is_active` on the category master carries
+      which kinds this version handles. It makes "refused by name rather than ignored" a data fact
+      rather than a list in code, and it obliges checkpoint 5 to read the flag.
+
+      **Two criteria have no test here and that is correct** — the temporary copy's deletion and
+      "no fetched file in long-term storage" are worker behaviour. The schema's contribution is that
+      no column anywhere holds file bytes, which is prose in the migration and not something a test
+      can assert.
+
+      **The allow-list and the caps were left alone, deliberately** ([[Q91]]): no table, no
+      environment key, no cap enforcement. `byte_size` stores what the caller declared. The seeder
+      does carry an over-cap row (`10410010`, 20 MB) so checkpoint 5 has a fixture.
+
+      Indexes follow the repository's settled pattern over the letter of §18, which marks two keys
+      "indexed" and says nothing about the other three: master-category `INTEGER` keys get none,
+      `AiProviderId` gets a plain index because the egress record is read from the provider's side
+      too. Every index name fits inside the 64-character limit, so no `SHORT_COLUMN_NAME` was needed.
+      -->
+- [x] 4. Stub API  <!-- n/a: this feature adds no API operation, which is the checkpoint's own not-applicable clause. Confirmed mechanically rather than by eye, the same three ways checkpoint 3 of `#run-execution` used: §18 carries `### Data model`, `### Use cases` and `### Acceptance criteria` and **no `### RESTful API`**, where §12 and §20 each carry one; it adds no operation to `.hora/contracts/1.0.0/client-api.md`; and the `media[]` array its work reads belongs to the POST body of `#run-contract`, already built and already stubbed there. There is no operation for a stub to shadow. -->
 - [ ] 4. Stub API
 - [ ] 5. The modules the implementation needs
 - [ ] 6. Actual API

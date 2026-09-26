@@ -2750,3 +2750,109 @@ them.
 
       **Worth settling in the spec** — this is a durable design fact that a later reader will want
       stated rather than inferred from an absence.
+
+
+## Q92 — the run response's `engine` carries two facts, and one of them is per field
+
+- category: undefined-detail
+- blocking: no
+- raised by: checkpoint 3 of `#run-delivery`
+
+`.hora/contracts/1.0.0/client-api.md` says `engine` holds "which loop and model produced the result,
+**and** the version of the confidence formula that scored it" — two facts. The data model carries
+them in two places and at two different grains:
+
+- `ai_runs.engine_label` — one string, one per run
+- `ai_run_field_outcomes.confidence_method_version` — **one per settled field**, so a single run can
+  carry several different values
+
+§12 declares no shape for `engine`, and neither does the contract.
+
+- [ ] open
+      **The reading taken at checkpoint 3**, and used unchanged by checkpoint 4's stub:
+      `engine: { label, confidenceMethodVersion }`, both nullable. It is the only reading that
+      carries both facts without smushing them into one string.
+
+      **What it leaves open, and what checkpoint 6 must decide:** what a run whose settled fields
+      carry two *different* `confidence_method_version` values answers. The candidates are the one
+      shared by every field (null when they disagree), the newest, or a move of the field to
+      `steps[]` where the grain matches. Nothing in the spec prefers any of them.
+
+      **Not drift.** The contract states the content; it just does not state the shape. Worth
+      settling in the spec before `#run-list` answers the same field for many runs at once.
+
+## Q93 — `steps[]` has no declared field list anywhere
+
+- category: undefined-detail
+- blocking: no
+- raised by: checkpoint 3 of `#run-delivery`
+
+`GET /v1/ai-runs/:runKey?expand=steps` answers a `steps[]`, and **no section says what is in a
+step**. §12 does not, §10 does not, and the contract names the array without naming its fields. §10
+says outright that "the API read-back is `#run-delivery`", so the shape falls to this feature by
+default rather than by statement.
+
+- [ ] open
+      **The reading taken at checkpoint 3**: the seven fields readable off `ai_run_steps` —
+      `stepIndex`, `stepName`, `stepCategoryName`, `outcomeCode`, `reasonCode`, `startedAt`,
+      `finishedAt`.
+
+      **`rejections` is deliberately excluded**, and that is the part worth a decision rather than
+      an inference. It is the internal decision trace; the contract never names it; and §10 is
+      emphatic that the trace holds figures and never values. Handing it to a client would be a
+      spec edit, not a code change.
+
+      **Where it bites:** a client debugging a run will ask why a field was rejected, and the answer
+      is in the column this reading withholds. That is a product decision about what a partner may
+      see, which is why it is recorded rather than settled here.
+
+## Q94 — which media kinds this version handles is a flag, not a name in code
+
+- category: design
+- blocking: no
+- raised by: checkpoint 3 of `#media-fetch`
+
+§18 seeds three media categories — `image`, `video`, `audio` — and says the two unhandled ones exist
+"so a request naming one of them is refused by name rather than ignored". **It does not say how the
+handled one is distinguished from the other two.**
+
+- [ ] open
+      **The reading taken**: `is_active` on `ai_run_media_categories`, `image` true and the other two
+      false. What it buys is that the distinction is a data fact rather than a list in code — turning
+      video on later is a flag flipped on an existing row, and a fourth kind is a new row, neither of
+      them a code change.
+
+      **What it obliges**: checkpoint 5 must **read the flag**, not hard-code `image`. Written into
+      this feature's brief for that reason.
+
+      **The alternative not taken** was seeding only `image` and refusing anything else as unknown —
+      rejected because it cannot tell "a kind we know and do not handle yet" from "a kind that does
+      not exist", which is exactly the distinction §18 asks the refusal to make.
+
+## Q95 — a fifth file now carries an inline lint exception
+
+- category: eslint-exception
+- blocking: no
+- raised by: checkpoint 8, round 2, of `#run-execution`
+
+`eslint.config.js` keeps a list of files permitted an inline `eslint-disable`, under a comment
+reading "🚨 Never add other files to this files." It held four. It now holds five:
+`sequelize/models/AiRun.js`, for `no-param-reassign` on one line.
+
+The line is `options.where = provenAiRunCondition`, inside `beforeBulkUpdate`. **Sequelize gives a
+bulk hook no return channel** — it reads `options.where` back after the hook and builds the statement
+from it — so assigning to it is the only way the UPDATE runs under the condition the model built
+rather than under the caller's object. Three routes were tried and none avoided it: a named method
+taking `{ options }` is still flagged (the destructured binding is a parameter binding), the rule's
+`ignorePropertyModificationsFor` option is empty in the shared config, and `Object.assign` is on the
+`no-restricted-properties` denylist.
+
+- [ ] open
+      **Put to the person running the session and approved by them**, with the alternative stated:
+      dropping the substitution and keeping only the compile check needs no exception, but drops the
+      guarantee from "the statement runs under this model's condition" to "the caller's `where`
+      compiled to that condition at the instant the hook asked" — which a `where` answering
+      differently on a second read would satisfy while running something else.
+
+      **Removal condition:** if Sequelize ever gives a bulk hook a return channel for its `where`,
+      or if the shared config grows an `ignorePropertyModificationsFor` covering a hook's options.

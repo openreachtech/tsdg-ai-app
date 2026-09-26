@@ -76,6 +76,15 @@ read from the package itself** under the backend row's `node_modules/`.
 | the service's own dispatcher | `JobDispatcherCtor` | static getter | backend | abstract on `BaseAiRunPostRenderer`, beside `aiRunCategory`. A service names its own |
 | the daemon's entry point | `scripts/startJobDaemon.js` | script | backend | `JobWorkersDaemon.createAsync({ EngineCtor })` — see [[Q87]] |
 | where concrete jobs live | `app/jobs/` | directory | backend | the daemon's `workersPath`; auto-discovered, no registration file |
+| which media kinds this version handles | `isActive` | field | backend | on `ai_run_media_categories`. A flag, so a fourth kind is a row and turning video on is not a code change — see [[Q94]] |
+| the media-kind hash | `AI_RUN_MEDIA_CATEGORY` | constant | backend | keys `IMAGE` / `VIDEO` / `AUDIO`; names are the `mediaCategoryName` the contract carries |
+| the egress record | `ProviderUploadedFile` | model | backend | which file went to which provider and when. Kept whether or not the run's content still exists |
+| the alias an include must name | `as: 'AiRunMedia'` | association option | backend | `singularize('AiRunMedia')` is `AiRunMedium`, so inference resolves to a column no table has |
+| the callback-kind hash | `AI_RUN_CALLBACK_DELIVERY_CATEGORY` | constant | backend | one row this version (`terminal`); the deferred progress callback is a second row, never a second column |
+| one delivery attempt | `AiRunCallbackDelivery` | model | backend | one row per attempt, not per run, so the retry count has a single answer |
+| which attempt this was | `attemptIndex` | field | backend | on `ai_run_callback_deliveries`, unique with the run and the kind |
+| the REST type namespace | `restfulapi.<version>` | namespace | backend | `types/restfulapi/<renderer>.d.ts`. The repository's first REST type declaration; `#run-list` and `#run-cancel` copy it |
+| the run read-back body | `AiRunResponse` | interface | backend | one builder, two callers — the callback job and the GET renderer. See [[Q92]] and [[Q93]] for the two shapes nobody declared |
 
 ## Names avoided, and why
 
@@ -95,3 +104,5 @@ read from the package itself** under the backend row's `node_modules/`.
 | `ctx`, `err`, `msg`, `num` | all on the denylist | `context`, `error`, `message`, `count` |
 | `cancelled`, `cancelling` | British spelling. The naming convention requires American always, and `no-restricted-syntax` enforces it by name — the most protected rule there is, so no per-file exception can buy it off. The spec, the contract and the code all carried the British form until lint caught it | `canceled`, `canceling` |
 | `generateConnectionOptions` kept over `buildConnectionOptions` | The verb table assigns `build~` to a temporary object, so `build~` is stricter. Kept anyway: the equipped job skill names that exact member and every ORT job repository's `RedisConnection` already carries it, so cross-repo recognizability won | `generateConnectionOptions` |
+| a `url` column on `ai_run_media` | The contract carries `url` in the request's `media[]`, and §18 declares no such column. It is read from `ai_runs.request_body` at fetch time and never re-stored, so adding one would be a second home for the same fact | (no column — read from the request body) |
+| a response-body column on a delivery row | §12: a delivery record says whether it arrived, not what came back. The model test compares the whole attribute hash, so adding one fails loudly rather than quietly | (`httpStatusCode` alone) |

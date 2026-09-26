@@ -65,7 +65,47 @@ Constraint: a model call is never retried automatically (#scope, permanently out
       -->
 
 ## Backend gate
-- [ ] 3. DB and API schemas
+- [x] 3. DB and API schemas  <!-- skills: hor-database-design, hor-sequelize-migration, hor-sequelize-model, hor-sequelize-seeder, hor-type-interface, hor-constant-definition, hor-restfulapi-architecture, hoc-naming, hoc-jsdoc, hoc-classes-principles, hoc-classes-constructor, hoc-classes-notations, hoc-methods, hoc-accessors, hor-backend-testing, hoc-jest; digests: hora-skills-ort-renchan 0.2.1, hora-skills-ort-core 0.4.0 -->  <!-- agents: 1; agent-time: ~890s; wall-time: ~1500s -->
+      <!--
+      Two tables as §12 declares them, plus the type declarations for `GET /v1/ai-runs/:runKey`,
+      run in parallel with `#media-fetch`'s checkpoint 3 on one branch. Migration numbers
+      (`000025`-`000026`) and the row-id prefix (`105`) were handed down before either started.
+
+      **The schema is where the retry criterion is first made checkable.** The table holds one row
+      per *attempt*, with `attempt_index` counting them, so "how many times was this retried" is a
+      count of rows with a single answer — and a dispatcher stuck at `attempts: 1` would show up in
+      the data as every run carrying exactly one row. A unique index on
+      `(ai_run_id, category_id, attempt_index)` was added although §12 asks for none, because a
+      duplicate attempt index leaves that count with two answers. §12's own silence on uniqueness is
+      recorded in the unit's report rather than treated as a prohibition.
+
+      **No response-body column**, per §12's "a delivery record says whether it arrived, not what
+      came back", and the model test compares the *whole* attribute hash — so a body column added
+      later fails that test rather than passing quietly.
+
+      **The unit read §12 and the repository over my brief, and was right twice.** I had written
+      "every foreign key is a plain BIGINT with an index"; the category key is `INTEGER` and
+      unindexed, because §12 declares `int` and because every master FK already in this schema
+      (`ai_run_steps.AiRunStepCategoryId`, `ai_run_field_outcomes.AiRunFieldStatusId`) is exactly
+      that. Tiny, and worth recording: a brief's general phrasing does not outrank a settled
+      pattern.
+
+      **Two shapes had to be chosen because nothing declares them**, both recorded rather than
+      settled silently: `engine` ([[Q92]]), which carries two facts held at two different grains,
+      and `steps[]` ([[Q93]]), which has no field list in §12, §10 or the contract and whose
+      reading deliberately withholds `rejections`.
+
+      **A defect in this unit's own work, caught by its sibling and fixed in the main session.** The
+      master seeder was written to `master/` only. `db:seed:master` — the step `db:refresh` runs —
+      reads `dev-master/`, so the `terminal` row would never have been inserted locally, and this
+      unit's own model test reads that row back by id. The one-line re-export the other nine masters
+      carry was added at the gate. It is the exact failure the sibling flagged unprompted, in a file
+      it had no reason to look at.
+
+      **`types/restfulapi/aiRunGet.d.ts` sets a precedent**: `types/restfulapi/<renderer>.d.ts` ->
+      `namespace restfulapi.<version>`, mirroring `hor-type-interface`'s GraphQL shape. It is this
+      repository's first REST type declaration, so `#run-list` and `#run-cancel` will copy it.
+      -->
 - [ ] 4. Stub API
 - [ ] 5. The modules the implementation needs
 - [ ] 6. Actual API
