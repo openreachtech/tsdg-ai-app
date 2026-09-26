@@ -4025,3 +4025,44 @@ than this gate's.
       in a repository that is public. Untracking these two would break the tests that read them, so
       the answer is a narrower ignore plus an explicit exception, not a removal.
 
+
+## Q133 — §20 states the reason's language twice, and the two statements differ
+
+- category: contradiction
+- blocking: no
+- raised by: checkpoint 9 of `#asset-media-extraction`
+
+Two lines of `specs/1.0.0/spec.md` say what language a suggested field's `reason` is written in:
+
+- line 861, §20's own prose: *"Values and reasons are written in **the language the asset owner
+  reads**."*
+- line 877, §20's first use case: *"gets back a value per field with a confidence, a one-line reason
+  **in Vietnamese**, and which photos each value came from"*
+
+The built system follows the first, verbatim and in two places: the seeded agent instruction says
+*"Write that sentence in the language the asset owner reads"*, and the tool schema's own field
+description repeats it. **Nothing anywhere pins Vietnamese**, and `reason` is passed through from
+whatever the model answered, so the language of what a client receives is a property of the prompt
+rather than of this service.
+
+- [ ] open
+      **Neither statement is wrong on its own, and that is the difficulty.** Line 861 reads like a
+      deliberate refusal to hard-code one language into a service that holds prompts as data —
+      line 698 says ORT changes the Vietnamese wording a service sends *"without deploying
+      anything, because prompts are data rather than code"*. Line 877 reads like a statement of
+      what today's client will actually receive.
+
+      **They are consistent only if "the asset owner reads Vietnamese" is a fact about this
+      version's clients**, and nothing in the spec says so. A client integrating on line 877 and an
+      operator editing the prompt against line 861 can both be satisfied and still disagree about
+      what arrives.
+
+      **It is not what failed checkpoint 9** — the use case failed on demonstrability, not on
+      language — and it is not blocking, because the prompt is data and an operator who wants
+      Vietnamese writes it today. What it needs is one sentence saying which of the two is the
+      promise.
+
+      **It reaches the fixture now being built**, which has to put *something* in `reason` with no
+      model involved, and whatever it writes will read as this service's answer to a question the
+      spec asks twice.
+

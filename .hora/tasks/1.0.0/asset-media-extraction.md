@@ -200,7 +200,7 @@ Constraint: a model call is never retried automatically (#scope, permanently out
       its own derivation and not the criterion, whose "no model call" half is vacuous in a class that
       never calls one.
       -->
-- [x] 5. The modules the implementation needs  <!-- skills: hoc-classes-principles, hoc-classes-constructor, hoc-classes-notations, hoc-naming, hoc-jsdoc, hoc-methods, hoc-accessors, hor-constant-definition, hor-type-interface, hor-sequelize-model, hor-external-api-client, hor-backend-testing, hoc-jest; digests: hora-skills-ort-renchan 0.2.1, hora-skills-ort-core 0.4.0 -->  <!-- agents: 1 (cut off); wall-time: ~5400s -->
+- [ ] 5. The modules the implementation needs  <!-- cleared: 1; reopened-by: 9 -->  <!-- skills: hoc-classes-principles, hoc-classes-constructor, hoc-classes-notations, hoc-naming, hoc-jsdoc, hoc-methods, hoc-accessors, hor-constant-definition, hor-type-interface, hor-sequelize-model, hor-external-api-client, hor-backend-testing, hoc-jest; digests: hora-skills-ort-renchan 0.2.1, hora-skills-ort-core 0.4.0 -->  <!-- agents: 1 (cut off); wall-time: ~5400s -->
       <!--
       **The agent was killed mid-work by a session rate limit and its report was lost**, so the
       decisions below were read out of the code rather than taken on its word, and the main session
@@ -358,7 +358,7 @@ Constraint: a model call is never retried automatically (#scope, permanently out
       Verified green on three consecutive full runs, the last on the exact tree committed:
       `npx eslint .` clean, 3394 across 100 suites and 419 across 7.
       -->
-- [x] 8. Security audit  <!-- skills: hor-security-audit (invoked in full, not through a digest) -->  <!-- agents: 1; agent-time: ~471s; verify-time: ~471s; wall-time: ~700s -->
+- [ ] 8. Security audit  <!-- cleared: 1; reopened-by: 9 -->  <!-- skills: hor-security-audit (invoked in full, not through a digest) -->  <!-- agents: 1; agent-time: ~471s; verify-time: ~471s; wall-time: ~700s -->
       <!--
       Read-only audit over this feature's own 64-file change set, not the repository — the
       repo-wide pass is the version sweep's. **0 HIGH, 1 MEDIUM, 1 LOW**, both accepted and
@@ -401,7 +401,35 @@ Constraint: a model call is never retried automatically (#scope, permanently out
       operator log), the new master seeders' privileges, job-body mass assignment, and whether the
       new failure parameters can carry anything internal out to a client.
       -->
-- [ ] 9. Verify the use cases again, against the built API
+- [ ] 9. Verify the use cases again, against the built API  <!-- agents: 0; wall-time: ~900s (first attempt, not met) -->
+      <!--
+      **Not met on the first attempt, and it sent the run back into checkpoint 5.**
+
+      Three of §20's four use cases hold against the built API. The fourth does not: *"the client
+      system builds and demonstrates its whole suggestion screen before any API key exists, because
+      the stub answers deterministically from the media the request names."*
+
+      **On the only driver that exists, every run settles with no fields at all.** Confirmed rather
+      than reasoned: `_orders` run 10630104 carries readable photographs, settles successfully, and
+      produces `{"fields":[],"missingFieldPaths":[],"unreadableMediaKeys":[],"mediaSignature":"..."}`.
+      `StubAiModelProcessor`'s own docblock says why and says whose job the remedy is — it fills in
+      no findings because it opened nothing, and *"a service that wants demonstrable answers without
+      a key supplies them as a fixture of its own"*. This service had supplied none.
+
+      **Two further spec statements land on the same gap**, which is what makes it more than a
+      missing convenience: the glossary defines `media signature` as the value *"which makes the
+      stub's answer deterministic for the same input"* — nothing consumed it that way — and the
+      version's own acceptance criterion requires the pass to be **demonstrable** with no API key,
+      which an empty screen is not. That criterion is judged by the sweep, so this would have failed
+      there too, after the merge.
+
+      **The user chose to build the fixture rather than amend the spec**, both being open (the
+      version is unreleased). Checkpoint 5 is reopened for it, and checkpoint 8 with it, because
+      3-7 changing underneath an audit is a re-run rather than a scoped re-check.
+
+      **[[Q133]] came out of the same read** and is not what sent the run back: §20 states the
+      reason's language twice and differently.
+      -->
 
 ## Frontend gate
 - [x] 10. Open the frontend  <!-- n/a: target names no frontend row -->
