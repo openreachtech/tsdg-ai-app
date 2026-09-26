@@ -263,7 +263,43 @@ Constraint: a model call is never retried automatically (#scope, permanently out
       Final state at `7308b5a`: `npx eslint .` clean, 2963 across 83 suites and 369 across 6, green
       on two consecutive runs.
       -->
-- [ ] 9. Verify the use cases again, against the built API
+- [x] 9. Verify the use cases again, against the built API  <!-- skills: none matched — this gate is a reading against built code, and the delegate covers the shared UI/UX context, which this product declares no row for; digests: none -->  <!-- wall-time: ~1200s -->
+      <!--
+      Three use cases walked against the tree rather than against the criteria. **All three are
+      supported and none is exercisable end to end**, for one reason established by grep rather than
+      memory: **`MediaFetchClient` has no caller, and neither does `ProviderUploadedFileRecorder`.**
+      Searching `app/`, `server/` and `scripts/` returns only three comment references in sibling
+      classes. The caller is `#asset-media-extraction`'s second step, which is not built.
+
+      **"ORT fetches the files a run needs and refuses a URL that points anywhere else"** — the two
+      halves are in different states and the gate should say so. **The refusal is the most heavily
+      exercised behaviour in this version**: six audit rounds, every hostile URL spelling driven over
+      a real loopback socket, and a redirect chain re-asked at every hop after an SSRF was found and
+      reproduced twice in the main session. **The fetching is exercised only by its own unit tests**,
+      because nothing asks for a file yet.
+
+      **"ORT answers, months later, exactly which file was handed to which provider and when"** —
+      this is [[Q105]], and it is now worse than that entry states. §18 declares no operation for it,
+      so there is nothing to call; and the writer has no caller either, so there is nothing to read.
+      The table, its columns and its join are right and are exercised against seeded rows. **The use
+      case is answerable by a query somebody runs by hand, and by nothing this service offers.**
+
+      **"a run given a file too large fails with a reason the caller can act on, before anything has
+      been sent"** — the cap check is built and tested on both sides of the boundary, and the
+      fixtures now carry a real run failed under `MEDIA_LIMIT_EXCEEDED` with the parameters that name
+      which limit, added when [[Q114]] was settled. **What is not exercisable is "the run fails"** —
+      that needs the caller.
+
+      **The honest summary, stated rather than implied:** this gate verified that the parts each use
+      case needs exist, are correct and are guarded. It verified no use case end to end, and it could
+      not, because §18 delivers the tools a run uses and the run that uses them belongs to the
+      seventh feature. That is the same shape `#run-execution`'s own checkpoint 9 recorded, for the
+      same structural reason.
+
+      **One input this gate hands forward** ([[Q125]]): the per-fetch timeout does not bound the run —
+      twelve times thirty seconds is 360 against a budget of 300 — and nothing makes the caller
+      ration. Whoever builds that second step needs it as an input rather than as a comment.
+      -->
 
 ## Frontend gate
 - [x] 10. Open the frontend  <!-- n/a: target names no frontend row -->

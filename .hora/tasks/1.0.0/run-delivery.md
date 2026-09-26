@@ -336,7 +336,50 @@ Constraint: a model call is never retried automatically (#scope, permanently out
       Final state at `7308b5a`: `npx eslint .` clean, 2963 across 83 suites and 369 across 6, green
       on two consecutive runs.
       -->
-- [ ] 9. Verify the use cases again, against the built API
+- [x] 9. Verify the use cases again, against the built API  <!-- skills: none matched — this gate is a reading against built code, and the delegate covers the shared UI/UX context, which this product declares no row for; digests: none -->  <!-- wall-time: ~1200s -->
+      <!--
+      Three use cases walked against the tree. **This feature is further along than its sibling, and
+      the three are in three different states** — which is the whole value of running this gate
+      separately rather than once for the version.
+
+      **"the client satisfies itself that a callback really came from this service" — fully
+      exercisable, today.** The signer computes nothing of its own: it builds the payload and the
+      digest through the same class that verifies an inbound request, and there is a round-trip test
+      that signs with one production class and verifies with the other, then repeats it with the body
+      changed after signing. **A client can satisfy itself without a callback ever having been
+      sent**, because the signature is a property of the bytes.
+
+      **"the client that missed a callback reconciles by reading the run back, and gets the same
+      answer" — half exercisable, and the half that is, is the half the client actually uses.**
+      `GET /v1/ai-runs/:runKey` reads real rows through the shared builder, in all five states, and
+      another client's run is indistinguishable from an unknown key **by construction** — the client
+      id is in the `where`, so the run is never loaded. What cannot be driven is the comparison: the
+      callback half needs a run to settle. **"The same answer" is structural rather than observed** —
+      one builder, two callers — which is exactly what §12's own constraint asked for, and it is
+      weaker evidence than two bodies compared.
+
+      **"the client learns a run has finished without polling" — supported, not observable, and the
+      missing piece is one thing.** Every part exists and is wired: the raiser is called from
+      `BaseAiRunJobWorker` below the terminal branch and guarded on having settled the run, the job
+      lives under the daemon's `workersPath`, the dispatcher states a real retry policy, the deliverer
+      refuses an unregistered URL before building anything. **Nothing settles a run**, because
+      `grep 'extends BaseAiRunJobWorker'` over `app/` and `server/` returns nothing and `app/jobs/`
+      holds only the callback job. The chain is complete except its trigger.
+
+      **What this gate could check that the criteria could not.** The criteria pass on the callback's
+      shape, its signing and its retry; the use case asks whether a client *learns* anything, and the
+      answer is that it will the moment a run settles, and not before. Saying "criteria met" would
+      have been true and would have hidden that.
+
+      **[[Q118]] is the one thing that changed for the better mid-version**: `app/jobs/` holds a real
+      job now, so the daemon binds a live queue at its next start — and therefore needs Redis to
+      start at all. That does **not** close [[Q89]]: §11 speaks of *a run's* job, and this is a
+      *callback* job.
+
+      Two standing questions bear on these use cases and are not new here: [[Q108]], where the
+      read-back stops returning the callback's body after the content purge, and [[Q112]], where a
+      purged run is distinguishable on the record and not on the surface a client reads.
+      -->
 
 ## Frontend gate
 - [x] 10. Open the frontend  <!-- n/a: target names no frontend row -->
