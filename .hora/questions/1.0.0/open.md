@@ -3226,3 +3226,186 @@ is not.
       **Adding it to the contract's Callback row would be an improvement, not a correction** — the
       contract is silent rather than wrong. But a client has to know the name to read it, so silence
       here means the name is discovered from an implementation.
+
+
+## Q112 — a purged run is distinguishable on the record and not on the client surface
+
+- category: contradiction
+- blocking: no
+- raised by: checkpoint 6 of `#run-delivery`
+
+§19 carries a criterion: "a run whose content has been purged is distinguishable from one that never
+carried any". **It is satisfied on the run record and not on the surface a client reads.**
+
+`.hora/contracts/1.0.0/client-api.md`'s `AiRunResponse` carries no purged marker, so
+`GET /v1/ai-runs/:runKey` answers `result: null` for both — a run that was purged after thirty days,
+and a run that never produced a result at all.
+
+- [ ] open
+      Found while replacing the stub's canned body with the real one. The renderer is not where this
+      is decided: the response shape is the contract's, and whether the distinction belongs on the
+      client surface at all is §19's call. Both facts are now written into the renderer's own JSDoc
+      so the next reader does not have to rediscover the asymmetry.
+
+      **Related to [[Q108]] and worth settling with it.** That one says §12's "reading a run back
+      returns the same body the callback carried" is written without the clause the purge makes
+      necessary; this one says the client cannot tell when that clause has bitten. Either the
+      response gains a marker, or §19's criterion states that it is satisfied for an operator and
+      not for a client.
+
+      **Where it bites:** a client reconciling a missed callback months later reads `result: null`
+      and cannot tell whether to re-request the work or accept that the run produced nothing.
+
+
+## Q113 — the time limit stops a run's accounting and does not stop the work
+
+- category: design
+- blocking: no
+- raised by: checkpoint 9 of `#run-execution`
+
+§11's third use case is *"a run that has been going too long stops by itself **instead of holding a
+worker indefinitely**"*. The fourth acceptance criterion — "a run still running past the time limit
+ends as failed, carrying the time-limit reason code" — is kept in full: the race answers, the row is
+written, and the losing side can never reach that row because the status is the base worker's to
+write.
+
+**The use case's own words are not kept.** `BaseAiRunJobWorker` races the work against a timer and
+then leaves the loser "to settle or reject on its own". A work that ignores the race keeps running,
+holding its worker slot — so the daemon's concurrency drops by one for as long as that work lives,
+which for a work that never settles is forever. That is precisely "holding a worker indefinitely".
+
+**There is no channel at all for the work to be told.** `parcel.signal` is deliberately unused, and
+that reasoning is sound — it is BullMQ's abort signal, its firing conditions are undocumented, and a
+limit built on it would be a limit nobody could state the behaviour of.
+
+- [ ] open
+      **The gap is that no signal of this class's own making is offered either.** `executeAiRunWork()`
+      is handed a body, a context and a parcel, and nothing it could honour. The shape that closes it
+      is the one `MediaFetchClient` already uses against the same problem: an `AbortSignal` this class
+      controls, raised when the timer wins, passed into the work.
+
+      **What that buys and what it does not.** Nothing can force a concrete work to honour a signal,
+      so this makes cooperative stopping *possible* where today it is impossible. A work that ignores
+      it still holds its slot — but it then does so by its own choice, which is a different statement
+      from the one that is true now.
+
+      **Why it is worth doing before the seventh feature and not after.** `#asset-media-extraction`
+      is the first concrete `executeAiRunWork()`, and it fetches files and calls a provider — both
+      long, both already signal-aware. If the channel is added after it is written, it is written
+      against the shape that has no channel and then has to be revisited.
+
+      **Second-order, already recorded**: the same absence is why a work still running past the limit
+      can write a media file after the workspace was removed — `#media-fetch`'s checkpoint 7 names it
+      on the class and could do nothing about it. Closing this closes that.
+
+- [x] the channel was built, and it is not the whole of what the use case asks
+      `BaseAiRunJobWorker` now builds a controller per race and hands its signal to
+      `executeAiRunWork()`, raised **only** where the time limit won. Two controllers, because the
+      two cancellations run opposite ways: the work's signal is raised only on a loss, while the
+      alarm behind it is cancelled whichever way the race ends — an alarm nobody is waiting on would
+      still fire, and firing is what raises the work's signal, so a work that answered in time would
+      be told its run was over minutes later.
+
+      **`parcel.signal` stays unused and its reasoning stays verbatim.** This is a second signal,
+      this service's own, whose firing condition this file states.
+
+      **What it guarantees**: a work is *told*, before the row is settled, that its run went past the
+      limit, as a real `AbortSignal` it can hand to a fetch or a provider client; a work that
+      answered in time is never handed a raised one; and no path out of the race leaves a timer
+      behind.
+
+      **What it does not guarantee**: that any work stops. A work that ignores the signal keeps
+      running and keeps its slot. What changed is that this is now the work's choice rather than its
+      only option — and no docblock claims the slot is freed.
+
+      **What it makes somebody else's**: `#asset-media-extraction`'s `executeAiRunWork()`, the first
+      concrete one, must honour the signal in the calls it makes and ask it before writing into the
+      run's workspace. `#media-fetch`'s checkpoint 7 finding is now **closable but not closed**.
+
+      **And the use case is still ahead of what any base class can deliver**, which is worth a spec
+      decision rather than another round of code: §11 asks for a run that stops "instead of holding a
+      worker indefinitely", and the only mechanism that truly frees the slot is killing the worker
+      process — which would take the daemon's other in-flight runs with it. Either the wording
+      becomes what the system keeps ("the run stops being waited on, and its work is told to stop"),
+      or a second mechanism is designed. **Left open for that reason**, not because the channel is
+      missing.
+
+
+## Q114 — three fixture files tell two incompatible stories about one run
+
+- category: contradiction
+- blocking: no
+- raised by: the fixture-enrichment pass after checkpoint 6 of `#run-delivery`
+
+Run `10010009` is described three ways and two of them cannot both be true:
+
+| file | what it says |
+| :-- | :-- |
+| `development/*-ai_runs.cjs` | `failure_reason_code: 'PROVIDER_CALL_FAILED'` — the provider errored or declined |
+| `development/*-ai_run_media.cjs` | `byte_size: 20971521` against a 10485760 cap, `fetched_at: null`, and the comment *"over the 10 MB cap, so nothing was fetched and nothing was sent"* |
+| `development/*-ai_model_calls.cjs` | a model call with a `response_body`, and the comment *"failed on its provider, and the call that errored is still a call it made"* |
+
+**A run cannot have sent nothing and also have made a model call.** Verified by reading all three rows
+rather than taken on report.
+
+- [ ] open
+      **Where it came from.** `#media-fetch`'s seeder needed an over-cap medium as a fixture for the
+      byte-cap check, and **no run carried `MEDIA_LIMIT_EXCEEDED`** to hang it on — only two of the
+      seven reason codes have a seeded row at all (`MEDIA_UNREADABLE` on `10010005`,
+      `PROVIDER_CALL_FAILED` on `10010009`). So the medium was attached to the nearest failed run,
+      which already had a different story. The model-call seeder then read that run's code at face
+      value and wrote a third.
+
+      **Why it matters beyond tidiness.** No test cross-checks the three, so nothing is red today.
+      That is exactly what makes it corrosive: a fixture set that disagrees with itself stops being
+      evidence, and each later feature reads whichever file it happens to open.
+
+      **The resolution that loses nothing**: add one failed run under `MEDIA_LIMIT_EXCEEDED` carrying
+      `{ limitName: 'mediaByteSize', limitValue: 10485760, declaredValue: 20971521 }`, move the
+      over-cap medium onto it, and give `10010009` a medium consistent with having reached a
+      provider. That also closes §12's sixth criterion, whose "and its parameters" half is today
+      backed only by a hand-written entity — `MEDIA_LIMIT_EXCEEDED` is the one code of the seven that
+      carries parameters at all.
+
+      **The resolution that loses something**, and was rejected: flipping `10010009` to
+      `MEDIA_LIMIT_EXCEEDED` needs no new row, but leaves `PROVIDER_CALL_FAILED` with no seeded run.
+
+      **The id question, answered rather than left as an objection**: the new row goes in the
+      `ai_runs` seeder's own block. A prefix governs who may mint an id; a table's rows live in the
+      block of the seeder that owns that table, so adding a row to a seeder is that seeder's block by
+      definition. Filling a column of a row that already exists mints nothing and was never the issue.
+
+
+## Q115 — a fetched file is never checked against what it claims to be, and the acceptance was never recorded
+
+- category: design
+- blocking: no
+- raised by: checkpoint 8, round 3, of `#media-fetch`
+
+`MediaFetchClient#extractResponseMimeType()` carries the server's `content-type` through unverified,
+and the bytes are then written to disk and handed to a provider. **There is no magic-byte check
+anywhere.** A body declared `image/jpeg` that is an archive, an SVG or a polyglot reaches a provider
+declared as a photograph.
+
+Under the audit skill's own upload criteria — size validated, declared type trusted, no content check
+— that is a MEDIUM.
+
+- [ ] open
+      **The decision itself is sound and is not being reopened.** §18 asks for no content check and
+      names no set of formats to check against, and `ai_run_media.mime_type` is specified as borrowed
+      verbatim from the standard — that is, the caller's claim. Adding a sniffer would decide which
+      files this service refuses, which is a spec decision and not an audit fix.
+
+      **The finding is that nobody recorded it.** Rounds 1 and 2 both saw the paragraph in the class
+      docblock and both passed over it; the acceptance lived in a comment in the source and in two
+      agent reports, and in no place a later reader of `.hora/` would find it. Checkpoint 8 requires
+      a finding to be fixed **or explicitly accepted and recorded**, and only the first half of the
+      second option had happened. **That is my omission, not an agent's** — I read three audit reports
+      naming it and recorded the spec silences around it while leaving this one in prose.
+
+      **What closing it looks like:** §18 gains a criterion naming the formats this service accepts,
+      or states that the declared type is the caller's claim and is carried through deliberately.
+      Either is a `/hora-spec` edit. Until then this entry is the record.
+
+      Related: [[Q104]], where a required behaviour has no criterion standing over it, is the same
+      shape one level up — a decision that is real in the code and absent from what the gate checks.
