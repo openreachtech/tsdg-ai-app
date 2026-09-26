@@ -142,7 +142,60 @@ Constraint: a model call is never retried automatically (#scope, permanently out
       One lint finding here was a test asserting almost nothing — `expect.any(Object)` over the whole
       result — now asserting the four-field shape §20 declares.
       -->
-- [ ] 5. The modules the implementation needs
+- [x] 5. The modules the implementation needs  <!-- skills: hor-external-api-client (invoked in full — no digest exists), hor-constant-definition, hor-type-interface, hor-sequelize-model, hoc-classes-principles, hoc-classes-constructor, hoc-classes-notations, hoc-naming, hoc-jsdoc, hoc-methods, hoc-accessors, hor-backend-testing, hoc-jest; digests: hora-skills-ort-renchan 0.2.1, hora-skills-ort-core 0.4.0 -->  <!-- agents: 1; agent-time: ~1740s; wall-time: ~2400s -->
+      <!--
+      Five modules, one shared constant pair, and one development seeder the criteria could not be
+      checked without.
+
+      **`AiRunResponseBuilder` is the one body both callers share**, which is §12's own constraint:
+      two shapes for one answer is what a reconciliation path exists to avoid. The renderer calls it
+      at checkpoint 6 and the callback job calls the same method at checkpoint 7. **The client id is
+      part of the `where`**, so another client's run is never loaded at all — which is what makes the
+      ninth criterion's refusal indistinguishable from an unknown key rather than a `403` that
+      confirms the run exists.
+
+      **The signer computes nothing of its own.** It builds the payload and the digest through the
+      same class that verifies an inbound request, so the two sides cannot drift apart. And
+      `#buildCallbackHeaderHash()` answers `null` when the secret cannot key an HMAC — an empty
+      string *is* a usable key to `node:crypto`, which would produce a callback that looks signed and
+      verifies against nothing.
+
+      **The URL check compares normalized `href`s, not raw text.** A callback URL of
+      `https://client.example/callbacks/../../elsewhere` normalizes out of the registered prefix and
+      is refused; a bare `startsWith` on the text would have matched it and posted a run's whole
+      result to an unregistered path.
+
+      **Three open questions were decided here, with the reasoning beside the code.** For [[Q92]]:
+      the version every settled field shares, `null` when they disagree — because §20 speaks of one
+      version per run, so two is a defect in whatever scored it rather than a state a client should
+      reconcile, and `null` is already the value a run that never reached a worker carries, so no
+      third shape is added. For [[Q93]]: the seven fields written out **one at a time rather than
+      spreading the row**, with a test case handing in a step that *carries* a `rejections` value to
+      prove it does not travel. For [[Q98]]: `result` is `ai_runs.result_body` parsed and handed back
+      verbatim, so this builder reads no decimal at all — composing it from `ai_run_field_outcomes`
+      would bind a shared surface to one service's field list, which is exactly what checkpoint 3
+      typed it loosely to prevent. The dialect question lands on §20's worker instead.
+
+      **[[Q103]] is resolved rather than added to.** Two spellings of `MEDIA_LIMIT_EXCEEDED`'s
+      parameters existed on this branch. The kept one names *which* limit was exceeded; the other
+      could not, while the contract's own row says the code covers a byte cap **or** a count. The
+      stub's canned literal was changed to match in the main session rather than left for checkpoint
+      6 to remember.
+
+      **The header names now live in one place**, applied in the main session: the inbound context
+      declared its own three literals, and two spellings free to drift would let a client be verified
+      under one and called back under another.
+
+      **Four spec silences recorded**: §12 #4 and §19 are in tension and nothing says which wins
+      ([[Q108]]); a `result_body` that will not parse has no stated answer ([[Q109]]); the seeded
+      runs leave three response fields null on every row ([[Q110]]); and the run-key header's
+      spelling is a reading the contract does not state ([[Q111]]).
+
+      **The catalogued outbound-client package was declined a second time** ([[Q106]]), and the
+      reasoning is now consistent across both of this repository's outbound clients: the terminal
+      callback has no external response shape to wrap, because §12 stores the status code and
+      explicitly stores no body.
+      -->
 - [ ] 6. Actual API
 - [ ] 7. Worker
 - [ ] 8. Security audit

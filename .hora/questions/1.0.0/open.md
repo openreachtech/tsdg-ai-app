@@ -3023,11 +3023,21 @@ and 10,485,760 bytes is accepted on one reading and refused on the other.**
 client system builds its own wording out of them, so the names are part of the interface whether or
 not the contract says so.
 
-- [ ] open
+- [x] resolved at checkpoint 5 of `#run-delivery`
       **The shape chosen**: `{ limitName, limitValue, declaredValue }`, with `limitName` one of
       `'mediaByteSize'` / `'mediaCount'`. The distinction matters because the size cap and the count
       cap share one reason code and are two different things for a person to do about — trim a photo,
       or send fewer.
+
+      **Why this one won over the stub's `{ mediaCountLimit, sentMediaCount }`:** the contract's own
+      row says `MEDIA_LIMIT_EXCEEDED` covers "over the byte cap, **or** more media than the limit",
+      and §20's criterion says "with the limit named in the reason's parameters". The kept spelling
+      names which limit was exceeded and covers both cases; the other names no limit and can express
+      only one. The stub's canned literal was changed to match in the main session, so no second
+      spelling remains on the branch.
+
+      **Still worth a line in the contract**, which names no fields for this at all — the reconciliation
+      settled which spelling this product uses, not what the contract states.
 
       **This belongs in the contract** rather than being settled by the first implementation that
       needed it. `#run-delivery`'s stub independently chose `{ mediaCountLimit, sentMediaCount }` for
@@ -3103,3 +3113,116 @@ the reasoning is recorded so the choice is a decision rather than an oversight.
       same call for `RunKeyGenerator`), and because the behaviours differ where it matters: a
       declared size of `0` must **pass** the cap check while `isPositiveNumberLike()` would refuse
       it, and `'007'` must not read as a size.
+
+
+## Q107 — nothing sweeps a temporary workspace a dead worker left behind
+
+- category: undefined-detail
+- blocking: no
+- raised by: checkpoint 7 of `#media-fetch`
+
+§18 says a fetched file's temporary copy "lives on the worker's disk for the length of the run and
+is deleted when the run ends", and the removal is now hooked into the only place that knows a run
+has ended. **A delivery whose process is killed between the fetch and the removal runs no `finally`
+at all**, and the copy stays on disk.
+
+**§19's retention section declares three purge jobs and all three are database sweeps.** None of
+them touches the disk, so this is not covered there either.
+
+- [ ] open
+      **No disk sweeper was invented**, deliberately. A periodical job that deletes files is
+      `#retention`'s to declare, and §19 declares none — building one here would put a file-deleting
+      job into the product by implication rather than by decision, and a sweeper that gets its
+      pattern slightly wrong deletes a running delivery's working files.
+
+      **The mitigation that exists**: the workspace root is the machine's own temporary directory,
+      so the operating system reclaims it eventually. That is a mitigation, not a plan, and it is
+      stated as such in two class comments rather than left to be assumed.
+
+      **What a decision here looks like:** either §19 grows a fourth purge that sweeps workspaces
+      older than the run time limit, or §18 states that the temporary directory's own lifecycle is
+      the answer and a killed process's leftovers are accepted. Both are defensible; neither is
+      written down.
+
+      Worth reading at `#retention`'s gate, and at the whole-version sweep.
+
+
+## Q108 — reading a run back stops returning the callback's body after the content purge
+
+- category: contradiction
+- blocking: no
+- raised by: checkpoint 5 of `#run-delivery`
+
+§12's fourth criterion is unconditional: "reading a run back by its key returns the same body the
+terminal callback carried". **§19 purges `result_body` after thirty days**, so from day thirty-one
+the read-back answers `result: null` while the callback carried a result.
+
+- [ ] open
+      §10 is clear that the purge is intended — the decision figures survive on the long clock
+      *precisely because* the content does not. So the two sections do not disagree about behaviour;
+      §12's criterion is simply written without the clause that makes it true.
+
+      **No test was weakened for this.** The tests assert the body a run carries at the time it is
+      read, which is the honest statement of what the builder does.
+
+      **The fix is one clause in §12** saying the equality holds until the content purge. Worth
+      settling before the whole-version sweep reads that criterion against a product that will
+      eventually contradict it.
+
+## Q109 — a stored result that will not parse has no stated answer
+
+- category: undefined-detail
+- blocking: no
+- raised by: checkpoint 5 of `#run-delivery`
+
+`ai_runs.result_body` holds what the answering service wrote. **Nothing says what a read-back answers
+when that column holds text that is not an object** — unparseable, an array, a bare number, or null.
+
+- [ ] open
+      **The rule chosen**, written into `AiRunResponseBuilder#buildResult()`: `result: null` whenever
+      the column holds no object. The client still gets `statusName`, `usage` and `failure` rather
+      than a `500`, which is the more useful failure.
+
+      **The cost, stated in the code:** a client cannot tell that case from a run whose result was
+      legitimately empty. If the spec would rather it be loud — a `500`, or a distinct failure code —
+      that is a one-line change in that method.
+
+## Q110 — three response fields have no seeded non-null path
+
+- category: undefined-detail
+- blocking: no
+- raised by: checkpoint 5 of `#run-delivery`
+
+`sequelize/seeders/development/*-ai_runs.cjs` writes `engine_label`, `result_body` and
+`failure_parameters` as **null on all ten rows**. So three fields of the run read-back cannot be
+exercised non-null against seeded data.
+
+- [ ] open
+      **A second `ai_runs` seeder was deliberately not added** — that file warns against giving the
+      table two sources of truth, and a second seeder is exactly that. The fields are covered instead
+      by a describe that hands the builder a run entity written out in the case, while its children
+      are read for real.
+
+      **What is owed:** a row or two carrying all three, added to the existing seeder when
+      `#run-contract` is next touched. Until then, the happy path of those three fields rests on a
+      hand-written entity rather than on a row the database produced.
+
+## Q111 — the run-key header's name is a reading, not something the contract states
+
+- category: undefined-detail
+- blocking: no
+- raised by: checkpoint 5 of `#run-delivery`
+
+`.hora/contracts/1.0.0/client-api.md` says a callback is "signed as a request is, plus the run key in
+a header" — and **names no header**. The three inbound header names are fixed there; this fourth one
+is not.
+
+- [ ] open
+      **The spelling chosen**: `x-ort-run-key`, matching the prefix and casing of the three beside it
+      so a client reads one convention across the whole protocol. It lives in
+      `constants/signedRequestHeaderConstants.cjs` with the other three, which is also what stopped
+      the inbound context and the outbound signer from holding two sets of literals.
+
+      **Adding it to the contract's Callback row would be an improvement, not a correction** — the
+      contract is silent rather than wrong. But a client has to know the name to read it, so silence
+      here means the name is discovered from an implementation.

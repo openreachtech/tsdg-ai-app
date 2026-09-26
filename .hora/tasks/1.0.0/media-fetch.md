@@ -155,7 +155,54 @@ Constraint: a model call is never retried automatically (#scope, permanently out
       -->
 - [x] 6. Actual API  <!-- n/a: this feature adds no API operation, the same not-applicable clause checkpoint 4 established and by the same three mechanical checks: §18 carries `### Data model`, `### Use cases` and `### Acceptance criteria` and no `### RESTful API`; it adds no operation to the client contract; and the `media[]` array its work reads belongs to a POST `#run-contract` already built. Worth naming what this leaves uncovered rather than letting the n/a imply nothing was lost: §18's second use case — "ORT answers, months later, exactly which file was handed to which provider and when" — is answered by `provider_uploaded_files` and its join and by no operation at all, which is recorded as [[Q105]] for checkpoint 9 to meet honestly rather than to fail against. -->
 - [ ] 6. Actual API
-- [ ] 7. Worker
+- [x] 7. Worker  <!-- skills: hor-execution-placement-pattern, hor-renchan-job-bullmq, hoc-classes-principles, hoc-classes-constructor, hoc-classes-notations, hoc-naming, hoc-jsdoc, hoc-methods, hoc-accessors, hor-backend-testing, hoc-jest; digests: hora-skills-ort-renchan 0.2.1, hora-skills-ort-core 0.4.0 -->  <!-- agents: 1; agent-time: ~800s; wall-time: ~1400s -->
+      <!--
+      **The placement walk ran first and decided that no placement is added.** The removal is not a
+      new piece of processing looking for a home — it is part of the run's own lifecycle, on the
+      worker's own disk, in the process already running the run. No job, no queue, no scheduler,
+      consistent with §18 declaring no `### Background jobs` section. Nothing was built for
+      `MediaFetchClient` and no caller was invented for it: the run that fetches is
+      `#asset-media-extraction`'s second step, and that feature is not built.
+
+      What this checkpoint owns is the **fifth criterion**, which checkpoint 5 could only half-keep:
+      `removeWorkspace()` deleted and nothing called it. The call now sits in a `finally` around the
+      settling rather than after the terminal write, because "when the run ends" is not "when the run
+      succeeded".
+
+      **`return await` inside that `try` is the load-bearing line**, and it was verified in the main
+      session rather than taken on the comment's word: a bare `return promise` completes the
+      try-statement before the promise settles, so the `finally` would delete the files while the
+      work was still reading them. Both call sites use `return await`.
+
+      **A removal that fails changes nothing about how the run ended** — it logs and swallows.
+      `#executeJob()` is the boundary the framework calls and where the terminal state is written, so
+      the repository's boundary rule applies; and a throw from a `finally` would *replace* both the
+      result and any exception already on its way out, which is worse than merely wrong.
+
+      **Five ways of ending pass through the hook**, each with its own test: the work finished, the
+      work threw, the run went past the 300-second limit, the terminal write itself threw, and
+      anything else thrown out of the settling.
+
+      **Three ways do not, and each is written into the class rather than left to be rediscovered.**
+      A delivery whose process is killed between the fetch and the removal runs no `finally`, and
+      nothing in this service sweeps what it left ([[Q107]] — §19's three purge jobs are all database
+      sweeps). On the time-limit path the work is still running when the removal happens, so a copy
+      written afterwards outlives the run, and there is no signal that stops it. And *canceled* does
+      not reach a worker at all today, because `#run-cancel` is not built — worth reading at that
+      feature's own checkpoint 7.
+
+      **The file system is not mocked in any test whose subject is the deletion.** Each writes real
+      bytes into the directory the worker itself would build, under the machine's temporary
+      directory with no root injected, then asserts reading it back rejects with `ENOENT` — the
+      shape checkpoint 5 set. The workspace is stubbed in exactly two places, both where a directory
+      that refuses to be removed cannot be arranged on every platform the suite runs on.
+
+      **[[Q89]] still holds and was read before anything relied on it**: `app/jobs/` holds no job, so
+      the daemon binds no queue and the base worker has never executed through one. Every test here
+      reaches the worker directly. That does not weaken the fifth criterion — the criterion is about
+      a file being deleted when a run ends, and every ending is driven — but "a real job, through
+      Redis, deleted its real files" is not established and is not claimed.
+      -->
 - [ ] 8. Security audit
 - [ ] 9. Verify the use cases again, against the built API
 
