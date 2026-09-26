@@ -196,8 +196,94 @@ Constraint: a model call is never retried automatically (#scope, permanently out
       callback has no external response shape to wrap, because §12 stores the status code and
       explicitly stores no body.
       -->
-- [ ] 6. Actual API
-- [ ] 7. Worker
+- [x] 6. Actual API  <!-- skills: hor-restfulapi-architecture, hor-type-interface, hoc-classes-principles, hoc-classes-constructor, hoc-classes-notations, hoc-naming, hoc-jsdoc, hoc-methods, hoc-accessors, hor-backend-testing, hoc-jest; digests: hora-skills-ort-renchan 0.2.1, hora-skills-ort-core 0.4.0 -->  <!-- agents: 1; agent-time: ~740s; wall-time: ~1300s -->
+      <!--
+      The stub's canned body is gone and `GET /v1/ai-runs/:runKey` reads real rows through
+      checkpoint 5's one shared builder. All five canned constants were deleted along with the three
+      seams that existed only to read them — a stub's fixtures left behind read as a fixture set to
+      the next person.
+
+      **The ninth criterion is kept by construction rather than by wording**, and that is the part
+      worth recording. "Reading another client's run answers as though it did not exist" could have
+      been met by choosing the same status and the same message for two different refusals. Instead
+      the client id is part of the builder's `where`, so another client's run is **never loaded**;
+      the renderer declares one refusal rather than two; and both paths cost the same single query.
+      Status, body and query count are therefore identical because they are the same path — which
+      the tests assert by giving four cases (another client's succeeded run, another client's queued
+      run with `?expand=steps`, an unknown key, a null key) **one shared `expected`**. Verified in
+      the main session by reading the `where` rather than taken on report.
+
+      **All five states are answered from real rows** — queued, running, succeeded, failed,
+      canceled — so no case the stub had was dropped. The stub's "steps asked for on a run that has
+      not begun" became the seeded queued run answering an empty trace.
+
+      **Two criteria were only partly exercisable and the unit said so instead of papering over
+      it.** `engine.label` and `result` read null on every seeded row, and the parameters half of the
+      failed body had no seeded value at all, because the `ai_runs` seeder wrote all three columns
+      null on all ten rows. The unit declined to add a second seeder — that would give the table two
+      sources of truth, which the file itself warns against — and declined to weaken a test. Recorded
+      as [[Q110]], and the fixture was enriched afterwards in a change of its own.
+
+      **A contradiction found outside the brief** ([[Q112]]): §19 says a purged run must be
+      distinguishable from one that never carried content, and it is — on the run record, and not on
+      the surface a client reads. `AiRunResponse` carries no purged marker, so both answer
+      `result: null`. Written into the renderer's JSDoc as well as recorded, because the renderer is
+      not where it is decided.
+      -->
+- [x] 7. Worker  <!-- skills: hor-execution-placement-pattern, hor-renchan-job-bullmq, hoc-classes-principles, hoc-classes-constructor, hoc-classes-notations, hoc-naming, hoc-jsdoc, hoc-methods, hoc-accessors, hor-backend-testing, hoc-jest; digests: hora-skills-ort-renchan 0.2.1, hora-skills-ort-core 0.4.0 -->  <!-- agents: 1 job + 1 wiring; agent-time: ~2650s; wall-time: ~3600s -->
+      <!--
+      **The decision this checkpoint turns on is what the job does *not* inherit.**
+
+      `BaseAiRunJobDispatcher` exists to say `attempts: 1` once, for §11's third criterion — a model
+      call is never retried. §12's eighth criterion requires the opposite for a callback, so a
+      dispatcher extending it would fail that criterion **silently**, with nothing red. And nothing
+      else lives in that class, so there was nothing left to inherit.
+
+      `BaseAiRunJobWorker` owns *a run's* lifecycle: claim running, race the time limit, write
+      exactly one terminal state, clear the media workspace. A callback writes no run status (the run
+      is already terminal and §10 says it never leaves one), has no limit of its own, and is retried.
+      Inheriting would have meant overriding the whole of `#executeJob()` to escape a lifecycle while
+      still carrying a claim, a race and a recorder that could never run.
+
+      **Both refusals to inherit are pinned by `not.toBeInstanceOf` tests**, so a later tidy-up that
+      re-parents either class goes red rather than quiet. The manifest *is* inherited, deliberately —
+      it carries a queue name and a body shape and no policy, and the body is `{ aiRunId }` for §11's
+      own stated reason.
+
+      **A trap in the queue's own vocabulary, found by reading its source.** `attempt_index` comes
+      from `attemptsStarted`, not `attemptsMade`: the obvious-looking field is raised only when an
+      attempt *finishes*, so it reads `0` for the whole of a first attempt and would file every first
+      attempt under an index no fixture uses — and a repeated index collides with the uniqueness the
+      table declares. A test case carries both fields side by side so a later edit that swaps them
+      goes red. Confirmed in the main session against the installed package.
+
+      **The retry policy is a reading** ([[Q116]]): seven attempts on an exponential backoff from a
+      minute, argued from §7's "an hour's outage is tolerable" and from §12's own reconciliation use
+      case. §12 says "retried until it lands" and names no bound. The whole option hash is asserted,
+      the way `#run-execution` asserts its own `attempts: 1`, so it cannot drift silently. And
+      anything that is not a `2xx` is retried, a `4xx` included, because §12 draws no line between a
+      client that is down and one that refuses ([[Q117]]).
+
+      **A refusal answers rather than raising**, so it is not retried: an unregistered URL, an
+      unknown run, an unknown client and a secret that will not decrypt all read the same in a
+      minute's time, and raising would spend the whole attempt budget on a request never made. A
+      refused URL also records **no row**, because a row would claim an attempt was made and the
+      retry count is read from those rows.
+
+      **The wiring landed separately**, because the one call belongs in a file another agent held.
+      The raise sits below the branch rather than inside either arm — the next terminal state added
+      would have been the one that forgot it — and is guarded on having settled the run: a delivery
+      that won the claim but lost the terminal write raises nothing, because the writer that won
+      raised for it. §12's first criterion says **one**.
+
+      **`app/jobs/` holds a real job for the first time** ([[Q118]]), so the daemon binds a live
+      queue at its next start and now needs Redis to start at all. That does **not** close [[Q89]]:
+      §11's second criterion is about *a run's* job surviving a restart, and this is a *callback*
+      job. The mechanism becomes observable; the run job is still the seventh feature's to supply.
+
+      Two of §12's nine criteria are not this checkpoint's and were not claimed: the read-back half
+      of the fourth, and the ninth, both checkpoint 6's.
+      -->
 - [ ] 8. Security audit
 - [ ] 9. Verify the use cases again, against the built API
 

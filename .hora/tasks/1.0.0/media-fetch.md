@@ -111,7 +111,6 @@ Constraint: a model call is never retried automatically (#scope, permanently out
       too. Every index name fits inside the 64-character limit, so no `SHORT_COLUMN_NAME` was needed.
       -->
 - [x] 4. Stub API  <!-- n/a: this feature adds no API operation, which is the checkpoint's own not-applicable clause. Confirmed mechanically rather than by eye, the same three ways checkpoint 3 of `#run-execution` used: §18 carries `### Data model`, `### Use cases` and `### Acceptance criteria` and **no `### RESTful API`**, where §12 and §20 each carry one; it adds no operation to `.hora/contracts/1.0.0/client-api.md`; and the `media[]` array its work reads belongs to the POST body of `#run-contract`, already built and already stubbed there. There is no operation for a stub to shadow. -->
-- [ ] 4. Stub API
 - [x] 5. The modules the implementation needs  <!-- skills: hor-external-api-client (invoked in full — no digest exists), hor-constant-definition, hor-type-interface, hor-sequelize-model, hoc-classes-principles, hoc-classes-constructor, hoc-classes-notations, hoc-naming, hoc-jsdoc, hoc-methods, hoc-accessors, hor-backend-testing, hoc-jest; digests: hora-skills-ort-renchan 0.2.1, hora-skills-ort-core 0.4.0 -->  <!-- agents: 1; agent-time: ~1700s; wall-time: ~2400s -->
       <!--
       Eight modules under a new `app/aiRunMedia/` concept folder, each backing a named criterion.
@@ -154,7 +153,6 @@ Constraint: a model call is never retried automatically (#scope, permanently out
       ended is the base worker.
       -->
 - [x] 6. Actual API  <!-- n/a: this feature adds no API operation, the same not-applicable clause checkpoint 4 established and by the same three mechanical checks: §18 carries `### Data model`, `### Use cases` and `### Acceptance criteria` and no `### RESTful API`; it adds no operation to the client contract; and the `media[]` array its work reads belongs to a POST `#run-contract` already built. Worth naming what this leaves uncovered rather than letting the n/a imply nothing was lost: §18's second use case — "ORT answers, months later, exactly which file was handed to which provider and when" — is answered by `provider_uploaded_files` and its join and by no operation at all, which is recorded as [[Q105]] for checkpoint 9 to meet honestly rather than to fail against. -->
-- [ ] 6. Actual API
 - [x] 7. Worker  <!-- skills: hor-execution-placement-pattern, hor-renchan-job-bullmq, hoc-classes-principles, hoc-classes-constructor, hoc-classes-notations, hoc-naming, hoc-jsdoc, hoc-methods, hoc-accessors, hor-backend-testing, hoc-jest; digests: hora-skills-ort-renchan 0.2.1, hora-skills-ort-core 0.4.0 -->  <!-- agents: 1; agent-time: ~800s; wall-time: ~1400s -->
       <!--
       **The placement walk ran first and decided that no placement is added.** The removal is not a
