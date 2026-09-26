@@ -358,7 +358,49 @@ Constraint: a model call is never retried automatically (#scope, permanently out
       Verified green on three consecutive full runs, the last on the exact tree committed:
       `npx eslint .` clean, 3394 across 100 suites and 419 across 7.
       -->
-- [ ] 8. Security audit
+- [x] 8. Security audit  <!-- skills: hor-security-audit (invoked in full, not through a digest) -->  <!-- agents: 1; agent-time: ~471s; verify-time: ~471s; wall-time: ~700s -->
+      <!--
+      Read-only audit over this feature's own 64-file change set, not the repository — the
+      repo-wide pass is the version sweep's. **0 HIGH, 1 MEDIUM, 1 LOW**, both accepted and
+      recorded rather than fixed, which is the second clause of this checkpoint's exit condition.
+
+      **The SSRF family this release twice produced is not reopened**, and the check was specific
+      rather than reassuring: `redirect: 'manual'` still stands, the allow-list is still re-asked
+      every hop, the https-to-http downgrade is still refused per hop, and there is **no second
+      fetch path anywhere in the change set** — nothing routes around that client.
+
+      **[[Q130]] (MEDIUM)** — fetched media is trusted to be whatever its `content-type` header
+      claims; no byte is ever read to check. Accepted because it is not exploitable in 1.0.0, for a
+      reason that was verified rather than assumed: the only driver is the stub and
+      `BaseAiModelProcessor#prepareAttachedFiles()` returns the list unchanged, so nothing leaves
+      the machine and nothing parses a byte. The fix is a spec decision — which formats this
+      service accepts — before it is an implementation, and `hasLeftTheMachine()` is the named seam
+      where the guard goes when the first real driver lands.
+
+      **[[Q131]] (LOW)** — the rate limit counts then acts, so one burst per window passes. Accepted:
+      authenticated-only, self-correcting within the window, and §20's criterion is true of the
+      state it names. Recorded beside [[Q128]] deliberately, because both concern the same few lines
+      and a reservation built while the ordering is undecided would be built twice.
+
+      **The one thing that would have made it HIGH was checked and is false.** `context.now` is the
+      server's clock — `AppRestfulApiContext` defaults `requestedAt = new Date()` — and the client's
+      timestamp header reaches only the freshness and signature checks, never the count.
+
+      **[[Q132]]** is out of this feature's scope and recorded for the sweep: two `.env` variants are
+      tracked in a public repository against a bare `.env` ignore line. Their values are
+      self-documented development fixtures, and the decision worth making is about the pattern.
+
+      **The audit corrected the brief on the point that set F-1's severity.** The brief said media
+      "is uploaded to a model provider"; in 1.0.0 no media leaves the machine at all. That is the
+      difference between a latent hole and a live one, and it was verified independently before the
+      finding was accepted.
+
+      Clean on every other check the skill runs, including the six this feature specifically
+      created: workspace path construction and its guaranteed cleanup, what reaches the provider
+      and whether a caller can steer it, logging (no URL, file name or body fragment reaches an
+      operator log), the new master seeders' privileges, job-body mass assignment, and whether the
+      new failure parameters can carry anything internal out to a client.
+      -->
 - [ ] 9. Verify the use cases again, against the built API
 
 ## Frontend gate

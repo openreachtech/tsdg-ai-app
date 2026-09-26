@@ -3931,3 +3931,97 @@ over `sequelize/seeders/` at `HEAD` returned nothing at all.
       a test, which is the one place a false statement is also a passing check. A test that
       canonises a gap does not merely fail to catch it — it defends it against the next reader.
 
+
+## Q130 — fetched media is trusted to be what its `content-type` says it is
+
+- category: security
+- blocking: no
+- raised by: checkpoint 8 of `#asset-media-extraction`
+
+`MediaFetchClient#extractResponseMimeType()` returns the remote host's own header verbatim, and that
+value becomes `AiRunMediumOutcome.mimeType` and then the `fileType` of the file handed to the
+provider driver. **No byte of the file is ever read to check it.** Two of the three layers the audit
+asks for are present and the third is not:
+
+- **size cap — present, at both ends.** The caller's declared byte size is refused before a fetch,
+  and the bytes actually received are bounded while the stream is read.
+- **declared-type allow-list — partial.** `ai_run_media_categories.handling_name` decides on the
+  category the **caller declared**, not on what the file is.
+- **content / magic-byte check — absent.**
+
+- [x] accepted for 1.0.0, recorded with the trigger that makes it live
+      **It is not exploitable in this version, and the reason is specific rather than hopeful.** The
+      only model driver that exists is `StubAiModelProcessor`, and `BaseAiModelProcessor#prepareAttachedFiles()`
+      returns the file list unchanged — verified by reading both. So no byte leaves the machine, no
+      byte is parsed, and `provider_uploaded_files` takes no row. What a mislabelled file reaches
+      today is a stub that digests a path string.
+
+      **The fix is a spec decision before it is an implementation.** Refusing a file means naming
+      which formats this service accepts, and that is not an implementer's choice to make inside a
+      media step. `MediaFetchClient`'s own class docblock already says exactly this and routes it to
+      the spec, which is why it is accepted here rather than improvised.
+
+      **The trigger is the arrival of a real provider driver**, not a date. `AiRunMediaProviderUploader#hasLeftTheMachine()`
+      is the seam: the moment that can answer true for a file, a mislabelled archive or polyglot is
+      being handed to somebody else's parser under a caller-supplied label. Whoever adds the first
+      real driver adds the check, and the format list the spec names, in the same change.
+
+      **What an attacker would need even then**: valid HMAC credentials and an object hosted on a
+      host already in `MEDIA_FETCH_ALLOWED_HOSTS`. This is not an unauthenticated path.
+
+
+## Q131 — the rate limit counts and then acts, so one burst per window gets through
+
+- category: security
+- blocking: no
+- raised by: checkpoint 8 of `#asset-media-extraction`
+
+`AssetMediaExtractionPostRenderer#render()` asks `AiRunRateLimitInspector` for the client's accepted
+run count and only then calls `super.render()`, which commits the new row. There is no lock, no
+unique constraint and no reservation across that gap, so N requests arriving from one client inside
+the same tick all read the same pre-burst count and all pass.
+
+- [x] accepted for 1.0.0, and it belongs with [[Q128]] rather than alone
+      **Two halves of the same question were checked and both hold.** The inspector counts what it
+      claims to count — `ai_runs` rows whose `acceptedAt` falls in the window, written from
+      `context.now`, with one code path creating a run. And `context.now` is **not** caller
+      controlled: `AppRestfulApiContext` defaults `requestedAt = new Date()`, the server's own
+      clock, and the client's timestamp header feeds only the freshness and signature checks. Had
+      that header reached the count, this would be a HIGH rather than a LOW.
+
+      **Why it is accepted.** It needs valid credentials, so it is not an unauthenticated bypass;
+      the sustained rate still converges, because once the burst commits every later request sees a
+      count over the limit for the rest of the window; and the amplification happens once per
+      window rather than accumulating. §20's criterion — *a client that has exceeded its rate limit
+      is refused* — is true of the state after exceeding, which is the state the criterion names.
+
+      **It is recorded beside [[Q128]] on purpose.** That question asks whether the check belongs
+      before or after the idempotency lookup; this one asks whether the check is atomic. Both are
+      about the same few lines, and whoever opens them should see both — a reservation built while
+      the ordering is still undecided would be built twice.
+
+      **The shape of the fix, for whoever takes it**: an atomic reservation — insert and count
+      inside one transaction, or a store-side counter with the window as its lifetime.
+
+
+## Q132 — `.env.development` and `.env.live` are tracked in a public repository
+
+- category: security
+- blocking: no
+- raised by: checkpoint 8 of `#asset-media-extraction`, out of that feature's scope
+
+Both files are tracked, and `.gitignore` carries a bare `.env` line that matches neither. Neither
+file is in this feature's change set and both predate it, so this is the version sweep's rather
+than this gate's.
+
+- [ ] open
+      **The values are development fixtures, and the file says so itself.** The development client's
+      secret is kept in the clear beside the key it is encrypted under, because the seeder and the
+      signing tests need the same value; `.env.live` carries the same keys with every value empty,
+      which is a template. Nothing read looks like a live credential.
+
+      **What is worth deciding is the pattern, not these two files.** A bare `.env` ignore beside
+      two deliberately tracked variants means the next `.env.*` somebody adds is tracked by default
+      in a repository that is public. Untracking these two would break the tests that read them, so
+      the answer is a narrower ignore plus an explicit exception, not a removal.
+
