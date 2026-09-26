@@ -3632,6 +3632,27 @@ other direction.
       stored per client — and `api_clients` carries no such column, so either the limit is one
       figure for everyone, or this is also a schema change.
 
+- [x] the premise was wrong, and the error was in the reading, not the spec
+      **§7's non-functional table carries a `Rate limiting` row, and it always did** (line 227):
+      *"the run-creating request is limited per client. The idempotency key stops a repeat of the
+      same request; it does nothing about a thousand different ones, and each run costs three model
+      readings."* The search that produced "that line and nothing else" was case-sensitive and the
+      heading reads `Rate limiting`, so it matched `rate limit` at §20 and missed this one.
+
+      **What the row settles is most of what the question asked for.** The scope is the
+      run-creating request, per client — not per route and not inside the job. The rationale names
+      the cost being defended: three model readings per run. Both were written down before the
+      question claimed they were missing.
+
+      **What it does not settle is the figure**, and checkpoint 6 chose `60` runs per `60` seconds
+      as constants rather than environment values, counted over `ai_runs` rows accepted for that
+      client with the window bounded at both ends. `api_clients` still carries no per-client column,
+      so this is one figure for everyone until a spec change says otherwise — which is the third of
+      the question's three possibilities, taken deliberately rather than by default.
+
+      **The ordering the row implies is not the ordering that was built**, and that is recorded
+      separately as [[Q128]] rather than folded in here.
+
 
 ## Q123 — three shapes the request and the result never declare
 
@@ -3782,3 +3803,41 @@ lesson had failed to travel between the two files, twice, in both directions.
 
       **Still open in the contract**: it names the field and not its keys. Worth a line there, since
       a client generates from it.
+
+
+## Q128 — the rate check runs before the idempotency lookup, so a repeat is refused along with the rest
+
+- category: undefined-detail
+- blocking: no
+- raised by: checkpoint 6 of `#asset-media-extraction`
+
+`AssetMediaExtractionPostRenderer` overrides `render()`, asks `AiRunRateLimitInspector` first, and
+calls `super.render()` only when the client is under its limit. The idempotency lookup lives in
+`BaseAiRunPostRenderer#renderAcceptedRun()`, after validation — so a client over its limit that
+retries **a key already stored** is answered `429` instead of the run that key names.
+
+- [ ] open
+      **§20's criterion is met either way, which is why this is not a defect.** It asks that an
+      over-limit client be refused with no run created and no model called. A repeat creates no run
+      under either ordering, so both orderings satisfy it.
+
+      **What the two orderings disagree with is §7's sentence, not the criterion**: *"the idempotency
+      key stops a repeat of the same request; it does nothing about a thousand different ones, and
+      each run costs three model readings."* Read plainly, the limit exists to defend model
+      readings, and a repeat of a stored key costs none. Refusing it denies a client the answer to
+      work it has already been charged for.
+
+      **The cost of the current ordering is bounded**: the client retries after its window clears
+      and gets the original run. Nothing is lost, and the answer is delayed.
+
+      **The fix is not this checkpoint's to make.** Putting the check behind the lookup means a
+      `refuseBeforeAcceptance({ context })` hook on `BaseAiRunPostRenderer`, which three features'
+      run-creating routes sit on. A subclass's checkpoint changing a shared base is how one feature
+      silently alters another's refusal order, so it is recorded here for the checkpoint that owns
+      that base class.
+
+      **The contract states the built ordering rather than the preferred one** — the `429` row in
+      `.hora/contracts/1.0.0/client-api.md` says a stored key is refused too while the window is
+      full. A contract describing the behaviour somebody intends is worth nothing to a client
+      integrating against the behaviour that ships.
+

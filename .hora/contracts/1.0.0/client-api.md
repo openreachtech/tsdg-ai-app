@@ -132,6 +132,7 @@ of these.
 | `422` | a required field is missing, or a field's value is not one the schema accepts |
 | `422` | the `Idempotency-Key` header was not sent. It is a required field of the request, even though it does not travel in the body |
 | `422` | nothing could be read as a body. A run cannot be stored without the hash of the bytes it was accepted with, so this is refused rather than stored incomplete |
+| `429` | the client has had more runs accepted in the window than its limit allows. No run is created and no model is called. The check runs before the idempotency lookup, so a repeat of a key already stored is refused too while the window is full, rather than answered from the run it names |
 
 `401` and `403` are told apart on purpose: the first says the caller is not who it claims,
 the second says it is and may not. A caller that cannot tell them apart retries a rotation

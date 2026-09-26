@@ -248,7 +248,58 @@ Constraint: a model call is never retried automatically (#scope, permanently out
 
       Final state at `52ebf86`: `npx eslint .` clean, 3268 across 90 suites and 400 across 6.
       -->
-- [ ] 6. Actual API
+- [x] 6. Actual API  <!-- skills: hoc-classes-principles, hoc-classes-constructor, hoc-naming, hoc-jsdoc, hoc-methods, hor-constant-definition, hor-restfulapi-renderer, hor-backend-testing, hoc-jest, hoc-test-execution; digests: hora-skills-ort-renchan 0.2.1, hora-skills-ort-core 0.4.0 -->  <!-- agents: 1; agent-time: ~1519s; wall-time: ~1900s -->
+      <!--
+      The stub's body and every `*Stub*` member are gone, and the route now accepts and leaves the
+      run `queued`. Nothing executes it until checkpoint 7 wires the job — intended, written down,
+      and a real state of the product between these two commits rather than a regression.
+
+      **The agent corrected the assignment on two points, and both corrections held on inspection.**
+
+      **[[Q122]]'s premise was wrong, and the error was mine.** §7's non-functional table has
+      carried a `Rate limiting` row all along (line 227) naming the scope and the reason. The grep
+      behind "that line and nothing else" was case-sensitive against a heading that reads `Rate
+      limiting`. That row is what decided the design: what is counted is **runs accepted**, not
+      requests received, because what the limit defends is three model readings per run.
+
+      **Four criteria this brief assigned here are not request-side, and were not duplicated.**
+      §20's unreadable / video-refused / audio-ignored / photo-cap criteria are run failures
+      carrying a reason code and parameters, already built and tested in checkpoint 5's
+      `AiRunMediaCollector`; `MEDIA_LIMIT_EXCEEDED`'s parameters cannot travel in an HTTP refusal
+      envelope at all. They become *reachable* at checkpoint 7. The agent declined on the grounds
+      that a second implementation gives one rule two answers, and said it disagreed with the gate
+      rather than with the criteria — which is the right shape for that disagreement.
+
+      **What this checkpoint's own criterion cost.** `AiRunRateLimitInspector` counts `ai_runs`
+      rows accepted for the client with the window bounded at both ends, 60 per 60 seconds, as
+      constants rather than environment values. There is no `express-rate-limit` call site, and its
+      absence is deliberate: that middleware counts requests in process memory before the client
+      has been resolved, which is neither the subject nor the unit §7 names.
+
+      **Both checkable halves of the criterion are asserted.** The refusal returns `429`, and a
+      separate describe renders and then asks `AiRunAcceptor#findAiRun()` for the run, proving none
+      was created. The third half — "no model is called" — is not assertable here, because no model
+      is called on this path at this checkpoint under any input.
+
+      **The ordering it chose is recorded as [[Q128]], not fixed here.** The check runs before the
+      idempotency lookup, so a repeat of a stored key is refused while the window is full. §20's
+      criterion is met either way; §7's sentence argues the other way; and moving it means a hook on
+      `BaseAiRunPostRenderer`, which three features' routes sit on.
+
+      **The contract drifted and was corrected here**: `.hora/contracts/1.0.0/client-api.md`'s
+      refusal table stopped at `422` and now carries `429`, stating the ordering that ships rather
+      than the one [[Q128]] prefers.
+
+      **Checkpoint 5's one gap was closed on the way**: `AiRunMediaProviderUploader` had no test in
+      either tree, and now has both, with the `_orders` barrel line written by hand.
+
+      **`__tests__` fell from 3268 to 3259 while gaining three suites**, which is the stub's 24
+      test blocks leaving and 27 real ones arriving. Checked rather than assumed, because a count
+      that drops is the one a report is most tempted to round past.
+
+      Verified at two consecutive full runs: `npx eslint .` clean, 3259 across 93 suites and 412
+      across 6.
+      -->
 - [ ] 7. Worker
 - [ ] 8. Security audit
 - [ ] 9. Verify the use cases again, against the built API
