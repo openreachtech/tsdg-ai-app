@@ -1522,6 +1522,28 @@ executes scripts through `cmd.exe` here, and both scripts are written for a POSI
 
 `test.sh` itself is bash and is fine; it fails only because it calls those npm scripts.
 
+- [x] **closed: this describes a machine the project is not run on.** The user's standing
+      instruction is that all work happens in **WSL**, and the whole of the above is an artifact of
+      a Windows-native shell. Verified by running the repository's own command there, unchanged:
+
+      ```
+      $ npm test
+      Test Suites: 111 passed, 111 total
+      Tests:       3878 passed, 3878 total
+      Test Suites: 7 passed, 7 total
+      Tests:       427 passed, 427 total
+      ```
+
+      `npm test` works exactly as written. `/hora-accept`'s step 2 can take it at face value, and
+      the hand-reconstructed invocation this entry describes should not be used again — it is what
+      skipped `--experimental-vm-modules` and produced a full-suite failure of a different kind
+      when first tried in WSL.
+
+      **Kept rather than deleted** because it is one of five entries this version recorded that
+      turned out to be the platform rather than the code, along with [[Q134]], [[Q140]], the
+      recurring CRLF lint failures, and a directory-ownership guard whose local runs were vacuous.
+      The rule that now forbids the Windows shell cites them.
+
 **Why it is worth recording rather than working around silently.** `/hora-accept`'s step 2 runs
 "that repository's own test command" — so a run that takes `npm test` at face value on Windows gets
 a non-zero exit that looks like a suite failure and is not one. Every suite run in this session has
@@ -4136,6 +4158,17 @@ same collapse rather than a defect of its own.
       will go looking for a defect in `#run-delivery`'s callback model, which is untouched and
       fine. The next person to add a suite will meet it again, closer to the edge.
 
+      - [x] **overtaken by [[Q140]]: this was measured on the wrong platform.** Re-run in WSL on
+            the same tree with jest's **default** worker count and no memory limit, the suite is
+            green — 3878 across 111 suites and 427 across 7, no crash, no `UNKNOWN: unknown error`.
+            The eleven-workers-against-4.3 GB reading was true of a Windows host this project is
+            not meant to run on. **Nothing needs adding to `jest.config.js`**, and the shared
+            setting this entry hesitated over should not be changed.
+
+      **What the measurement was still worth.** It distinguished a dying run from a failing one
+      correctly, and the signature it recorded — many suites reported failed while only one test
+      actually fails — is a real thing to recognise. Only its cause was misattributed.
+
       **What is not decided here is the fix**, because it is a shared setting. `maxWorkers` in
       `jest.config.js` would cap parallelism for every machine including CI, which may have memory
       to spare — unlike the `testTimeout` added earlier in this version, raising which cannot break
@@ -4257,3 +4290,95 @@ descriptors.
       sent but unreadable still counts as sent. Anyone relaxing that step-2 throw would remove the
       only thing keeping that scan bounded.
 
+
+## Q138 — §13 leaves three numbers to whoever implements it
+
+- category: undefined-detail
+- blocking: no
+- raised by: checkpoint 3 of `#run-list`
+
+Three figures a client integrates against are named nowhere — not in §13, not in the contract:
+
+- **the page's default and maximum size.** Chosen here as 20 and 100, with the reasoning written
+  into `constants/aiRunPageConstants.cjs`. A ceiling on a page is the kind of number a client
+  builds a paging loop around.
+- **what "stalled" means.** Settled here as *not in a terminal status, and waiting since
+  `startedAt` when running or `acceptedAt` when queued, longer than the threshold*. A client
+  reading it differently reads a different list.
+- **the maximum threshold** `?stalledForSeconds=` accepts, set at a year.
+
+- [ ] open
+      **The `stalled` reading is the one that matters, and it is not the obvious one.** Measuring
+      from `startedAt` alone would have been the natural implementation, and it would have made a
+      **dead queue invisible**: a run stuck at `queued` has no `startedAt` at all — the column is
+      nullable — so exactly the runs a stopped worker produces would never appear in the list built
+      to find them. The implementation reads two named branches, one per status, for that reason.
+
+      **This entry exists because that reading is a decision, not a derivation.** It is defensible
+      and it is written down in the code, but a sentence in §13 would make it the product's answer
+      rather than one implementer's.
+
+
+## Q139 — a criterion of §13 carries a clause nothing in 1.0.0 can check
+
+- category: undefined-detail
+- blocking: no
+- raised by: checkpoint 3 of `#run-list`
+
+§13's sixth criterion reads: *"filtering by correlation id returns every run for that object,
+**whichever service produced it**"*. The clause after the comma is a promise about a second AI
+service, and `ai_run_categories` holds **one row** in this version — so every run under any
+correlation id is of the same service, and the clause is true by vacuity rather than by test.
+
+- [ ] open
+      **The first half is met and tested**; seeded runs were added under one shared correlation id,
+      across two clients, so "returns every run for that object" is checked against a list that
+      could have returned one.
+
+      **The second half becomes checkable the day a second category row exists**, and not before.
+      It is recorded in the test's own comment as well, so a reader who wonders why the case looks
+      thin finds the reason where they are looking rather than here.
+
+
+## Q140 — a whole session's verification ran on the wrong platform
+
+- category: process
+- blocking: no
+- raised by: checkpoint 4 of `#run-list`, and corrected by the user immediately after
+
+**This entry was first written as an upstream defect. It is not one, and the correction is the
+entry.**
+
+`@openreachtech/renchan` loads classes with `await import(it)` where `it` is an absolute path.
+On Windows that throws `ERR_UNSUPPORTED_ESM_URL_SCHEME` — Node reads `D:\` as the protocol `d:` —
+and `server/index.js` dies at boot. Reproduced three times, and written up here as a library bug
+that Windows merely exposed.
+
+**It is deliberate on renchan's part.** The package targets POSIX, where an absolute path is also
+a usable URL. There is nothing to fix and no workaround to build; an override chain was being
+built when the user stopped it.
+
+- [x] closed by the user's correction, and kept for what it cost
+      **The real finding is that this project is to be worked in WSL, and this session worked
+      natively on Windows throughout.** That single mistake manufactured a run of findings that
+      looked like defects and were not:
+
+      - CRLF lint failures on nearly every agent-written file, seven separate times
+      - a jest worker pool exhausting memory at its default size, written up as [[Q134]] with a
+        measured configuration — real on this host, irrelevant on the intended one
+      - a directory-ownership guard whose test passed locally **because the guard never ran**:
+        `process.getuid` does not exist on Windows, so `#isOwnPrivateDirectory()` returned true
+        before reading the mode. Only CI on Linux caught it
+      - this entry's own boot failure
+
+      **What makes it worth keeping rather than deleting.** Every one of those was investigated as
+      though the code were the suspect, and in each the platform was. The pattern is legible only
+      once: an environment-shaped failure here — line endings, paths, uid, permissions, memory —
+      should first be checked against *where the command ran*, before anything is concluded about
+      the code.
+
+      **What it does not excuse.** The workspace-mode fix stands on its own merits: planting a
+      directory the way the class creates one is right on any platform, and CI proved it. And the
+      observation underneath [[Q101]] holds — reachability in this version has been verified by
+      reading rather than by running — but the reason is now known to be a wrong shell rather than
+      a broken loader, and it is answerable by moving.

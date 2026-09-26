@@ -100,7 +100,13 @@ screen.
 
 `runs[]` — per run: `runKey`, `runCategoryName`, `subjectLabel`, `correlationId`,
 `externalRef`, `statusName`, the last completed step (`stepName`, `stepIndex`),
-`elapsedSeconds`, `modelCallCount`, `inputTokenCount`, `acceptedAt` — plus `nextCursor`.
+`elapsedSeconds`, `modelCallCount`, `inputTokenCount`, `outputTokenCount`, `acceptedAt`
+— plus `nextCursor`.
+
+Both token counts travel, because section 13 asks a row to carry "the token spend" and a
+figure counting only what was sent is not that. They are separate rather than summed: the two
+are priced differently by every provider, so a caller adding them is a caller who has chosen
+to, and one reading them apart can still work out what a run cost.
 
 ### `AiRunCancellationResponse`
 
