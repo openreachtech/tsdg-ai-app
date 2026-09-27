@@ -149,6 +149,7 @@ unaccepted, or any one feature is sent back twice.
 ### Out of scope for now (to be built later)
 
 - Progress while a run is going — an event at each step boundary, and the operator's live stream (#run-progress) → no version yet. Once a service whose runs last minutes rather than seconds is scheduled. Deferred because the client already reads the run back and the operator has the command, so no stated use case is impossible without it. Seam: the worker already records every step boundary in the decision trace, so emitting from those boundaries later changes no step and no run
+- Deleting from a provider what was uploaded to it (#retention) → the version that ships the first vendor driver. Deferred because this version ships only the stub driver, which uploads nothing: `prepareAttachedFiles()` returns the files unchanged, so no row is ever written to the egress record, the expiry column is written null at its only call site, and the base processor exposes no member through which any job could ask a provider to delete anything. A job built now would stamp "the copy was deleted" without having deleted a copy, which records a false fact about personal data rather than leaving a criterion unmet. Seam: the egress record and its purge stamp already exist, so the job is a driver member and a scheduled sweep rather than a change to what is stored
 - Aborting a provider call already in flight (#run-cancel) → the version that ships the first vendor driver. Deferred because this version ships only the stub driver, which opens no connection, so there is no call in flight to abort and no test of it could be honest. A run still stops at the next step boundary and makes no further calls, which is what a client observes either way. Seam: the stop already travels on the work's own abort signal, which every step boundary already asks, so honouring it inside a driver is a parameter that driver reads rather than a change to the run's shape
 - Video among an asset's media → no version yet. Once the client's upload wizard accepts video. Seam: a medium's kind is a value the request already carries, so adding a kind changes no request shape, and a kind this version does not handle is refused by name rather than ignored
 - Reading legal documents → no version yet. Needs the legal-document catalogue per asset group and the fields to read. Seam: the run contract, the step trace and the consensus settlement are shared by every service, so a new service is a new loop rather than a new contract
@@ -297,7 +298,7 @@ Same shape as `ai_run_categories`. Seeds queued, running, succeeded, failed, can
 | `request_key` | string | NOT NULL, **unique with `ApiClientId`** | the caller's idempotency key |
 | `request_body_hash` | string | NOT NULL | so the same key with a different body can be refused |
 | `external_ref` | string | NOT NULL | the caller's own object key. Never interpreted |
-| `subject_label` | text | NOT NULL | one human-readable line from the caller, echoed back untouched |
+| `subject_label` | text | NOT NULL | one human-readable line from the caller, echoed back untouched. **Emptied once purged** — §7 counts it as content because it may name a place or a person, and the column stays NOT NULL, so the purge writes an empty string where the other three are nulled |
 | `correlation_id` | string | NOT NULL, indexed | groups the runs belonging to one business object |
 | `callback_url` | text | NOT NULL | where the terminal callback goes |
 | `request_body` | text('medium') | NULL once purged | content |
@@ -790,8 +791,10 @@ No table of its own. Clears content columns in place and records when it did.
 | purge expired run traces | a schedule on the longer horizon | `purge-expired-run-traces` | none | as above |
 | purge expired provider uploads | a daily schedule | `purge-expired-provider-uploads` | none | it calls a provider to delete what was uploaded, which is an outbound call nobody is waiting on |
 
-Purging content sets the content columns to null and stamps the run as purged, so a run
-whose content is gone stays distinguishable from one that never carried any.
+Purging content empties the content fields and stamps the run as purged, so a run whose
+content is gone stays distinguishable from one that never carried any. Three of the four
+are set to null; `subject_label` is set to an empty string, because its column is NOT NULL
+and stays so.
 
 ### Use cases
 <!-- usecases -->
@@ -807,7 +810,7 @@ whose content is gone stays distinguishable from one that never carried any.
 - after content is purged, the run's outcome, reason codes, model, prompt version, confidence, agreement counts, token counts and step trace all stay readable
 - a run whose content has been purged is distinguishable from one that never carried any
 - a run past the content horizon but inside the trace horizon still answers why a value was or was not produced
-- files uploaded to a provider are expired on a schedule of their own
+- the record of what left this service for a provider is kept, and carries when the provider stated it expires
 
 
 ## 20. Asset media extraction

@@ -4533,3 +4533,275 @@ characters, an RTL override, `__proto__`, `constructor`.
       captured signature and is accepted only because its fix is another feature's contract. This
       one costs a `500` instead of a `404`, on a dialect that does not ship.
 
+
+## Q145 — one promise about a json column is enforced, its twin is not
+
+- category: undefined-detail
+- blocking: no
+- raised by: checkpoint 3 of `#retention`
+
+§7 requires that failure parameters *"carry metadata — a path, a length, a count — never a value
+read from a photo"*. §10 makes the same promise about `ai_run_steps.rejections`: *"Never the value
+itself — the trace outlives the content, and a value kept here would survive the purge meant to
+remove it."*
+
+**One of the two is enforced by code and the other is not.** `AiRunStepRecorder#buildRecordableRejection()`
+builds a closed three-key shape — `fieldPath`, `reasonCode`, `figures` — reads the entry one level
+deep, holds the first two to patterns and admits only numbers as figures, so a fourth key carrying
+a seen value has nowhere to travel. `ai_runs.failure_parameters` is a bare `json` column with no
+constructed shape at all.
+
+- [ ] open
+      **Nothing leaks today**, and that was checked rather than assumed: the only writer is
+      `AiRunMediaCollector`, which puts a media key, a category name and booleans there.
+
+      **What makes it worth recording is the clock.** `failure_parameters` sits on the **730-day**
+      trace horizon, while the content it must never contain is purged at **30**. A future writer
+      putting a field value in there would put personal data two years past the purge meant to
+      remove it — and every acceptance criterion of `#retention` would still read as met, because
+      the run's four content columns would be empty and the stamp would be set.
+
+      **The shape to borrow already exists**, written once in `buildRecordableRejection()`. Closing
+      it means editing `AiRunStatusRecorder` and `AiRunWorkFailure`, which belong to
+      `#run-execution` and are accepted, so it was reported rather than taken.
+
+
+## Q146 — §19 does not say whether a run record itself is ever removed
+
+- category: undefined-detail
+- blocking: no
+- raised by: checkpoint 3 of `#retention`
+
+§19 names two clocks — content at 30 days, the decision trace at 730 — and a job for each. It does
+not say what happens to the `ai_runs` row after the longer one.
+
+- [x] read as "never", and built that way
+      **The reading**: the egress record in `provider_uploaded_files` is kept "independently of
+      whether the run's content still exists" (§18), and it hangs off the run through
+      `ai_run_media`; nothing in the spec says a run's identity disappears; and the run's own
+      timeline — its status, its failure reason code, its engine label — is neither content nor
+      trace.
+
+      **Why it matters more than it looks.** If the intent were that a run vanishes entirely at 730
+      days, `trace_purged_at` is the wrong shape for the job — a stamp on a row that is about to be
+      deleted says nothing — and what §19 calls a three-table purge becomes a cascade across six.
+      The two readings produce different schemas, not just different jobs.
+
+      **A sentence in §19 would settle it either way.** Recorded as answered rather than open
+      because the build had to choose, and this is the choice it made.
+
+
+## Q147 — a purge that stamps without deleting records a false fact, so the criterion was deferred
+
+- category: contradiction
+- blocking: no
+- raised by: checkpoint 5 of `#retention`
+
+Section 19's fifth criterion asked that files uploaded to a provider be expired on a schedule of
+their own, and its third job *"calls a provider to delete what was uploaded"*. Three links were
+checked in the tree, not assumed:
+
+- **`BaseAiModelProcessor` exposes no delete member of any kind** — `sendRequestToAi`,
+  `sendStreamRequestToAi`, `prepareAttachedFiles`, `findAiModelByName`, and nothing else. There is
+  nothing for the job to call.
+- **Nothing reaches the table.** `prepareAttachedFiles()` returns the file list unchanged and the
+  stub does not override it, so `hasLeftTheMachine()` is false for every file and
+  `provider_uploaded_files` takes no rows.
+- **`expiresAt` is written null literally** at its only call site, so a job selecting
+  `expires_at < now` would match nothing the running system ever wrote.
+
+- [x] settled by an approved spec amendment, on the section 15 precedent
+      **The argument that decided it is not "it cannot be tested".** The finder half *is* testable —
+      the seeder carries `expires_at` in all three states and its own docblock anticipates this
+      job. The agent still declined, and its reason is the one worth keeping: the only thing a
+      finder could be wired to is a stamper writing `provider_purged_at`, a column meaning **the
+      copy at the provider was deleted**. Writing it without having deleted anything **records a
+      false fact, permanently, about personal data** — which is worse than an unmet criterion,
+      because it makes the criterion *read* as met.
+
+      **Section 17 is what makes this structural rather than accidental**: a default installation
+      opens no outbound connection, and 1.0.0 ships exactly one driver class. There is no
+      installation of this version in which the job has work to do.
+
+      **The criterion now states what is built** — the egress record is kept and carries the
+      provider's stated expiry — and the delete moved to "Out of scope for now", unblocked by the
+      first vendor driver, with its seam named.
+
+      **`provider_uploaded_files.provider_purged_at` stays**, though nothing writes it in 1.0.0.
+      Checkpoint 3 added it and named exactly this risk; removing it is a migration for nothing and
+      it is correct the moment a driver uploads.
+
+
+## Q148 · upstream-defect · blocking: no
+
+**Raised at** checkpoint 7 of #retention, 2026-09-28.
+<!-- spec: retention -->
+
+**`CronSchedule` in `@openreachtech/renchan-job-bullmq@1.1.3` does not validate a cron
+expression, and its `isValid()` says it does.**
+
+```js
+isValidCronExpression () {
+  // TODO: Implement cron expression validation using CronExpressionValidator
+  return true
+}
+```
+
+`isValid()` is `super.isValid() && this.isValidCronExpression()`, so the second operand
+contributes nothing. A `schedulerId` whose expression is `'0 3 * * *'` and one whose expression
+is `'not a cron expression'` both produce a request that reports itself valid, and both reach
+`queue.upsertJobScheduler()`; what happens after that is BullMQ's business, not this
+repository's, and nothing here would have said a word.
+
+**Why it matters here more than the general case.** Retention's entire configuration is two
+strings. §7 fixes the two horizons as constants and §19 fixes the two queues, so the only thing
+left that can be wrong — and the only thing no test in this repository checks — is *when* each
+purge fires. A transposed field makes the nightly content purge a monthly one, and the service
+over-keeps personal data for a month while every test stays green and the job reports success on
+each of its firings.
+
+**What this checkpoint's evidence does and does not establish.** The implementer offered
+`request.isValid() === true` for both schedulers. Given the stub above, that establishes the
+schedule object is well-formed and establishes nothing whatsoever about the expressions.
+
+- [ ] open — no validation exists anywhere in the chain
+      `cron-parser@4.9.0` is present in `node_modules` as a transitive dependency of BullMQ, so
+      a test could parse both expressions and assert the interval between consecutive firings.
+      **It is a transitive dependency and not a declared one**, so a test resting on it breaks
+      the day BullMQ changes its own dependencies — which is the reason it was not simply added
+      here. The two candidate fixes are declaring `cron-parser` as a devDependency of this
+      repository, or `CronSchedule` implementing the validator its own TODO names.
+      **Removal condition:** either of those.
+
+      **Both expressions were measured by hand at this checkpoint**, against that same
+      `cron-parser`, from a fixed instant: `'0 3 * * *'` fires 03:00 daily with a 24-hour gap, and
+      `'0 4 * * 0'` fires 04:00 on weekday 0 with a 168-hour gap. So the two are right today, and
+      they differ in **cadence** rather than only in spelling — which is the behavioral form of
+      §19's "two separate settings, and never on one", stronger than the string comparison the
+      tests assert.
+
+      **A measurement taken once is not a guard.** Nothing re-runs it, so an expression edited
+      later is unverified again, and that is exactly the shape of this question.
+
+## Q149 · upstream-defect · blocking: no
+
+**Raised at** checkpoint 7 of #retention, 2026-09-28.
+<!-- spec: retention -->
+
+**`@openreachtech/mentsu-logger` writes nothing outside production, so every logging mitigation
+this version recorded is inert in development and staging.**
+
+```js
+shouldSkipLogging () {
+  const skipTargets = [
+    'production',
+  ]
+
+  return !skipTargets.includes(this.env.NODE_ENV)
+}
+```
+
+The local variable is named `skipTargets` and holds the one environment that is *not* skipped;
+`log`, `warn` and `error` each return early on it. So the predicate reads as the inverse of what
+it does, which is why this survived several readings.
+
+**The reach is the whole repository, not this feature.** Every `MentsuLogger` call site is
+subject to it, `DeliverRunCallbackJobWorker`'s included. It is pre-existing and was not
+introduced here.
+
+**It also undercuts a mitigation already recorded.** [[Q25]] reasons about an unbounded stream of
+disk writes from refused requests; that stream exists in production only. More importantly, the
+audit trail that several checkpoints added *as the mitigation* — "the refusal is logged" — is a
+true statement about production and a false one about every environment a person is likely to be
+looking at when they need it.
+
+- [x] worked around for retention, not fixed
+      `BaseAiRunPurgeJobWorker` carries the unexhausted-sweep fact on **two** routes rather than
+      one: the warning line, and the job's own returned result, which BullMQ persists and which
+      `removeOnComplete: { count: 90 }` bounds. The second route works in every environment, and
+      the two answer different questions anyway — one firing, versus whether the backlog is
+      draining across the last ninety. The design stands after the package is corrected.
+
+      **Nothing else in this repository has that second route.** Anywhere a log line is the only
+      record of something, this defect means there is no record outside production.
+      **Removal condition:** a `mentsu-logger` release whose skip predicate is configurable, or
+      whose default is to write.
+
+## Q150 · convention · blocking: no
+
+**Raised at** checkpoint 7 of #retention, 2026-09-28.
+<!-- spec: retention -->
+
+**An operational script has no sanctioned way to tell the person running it that it succeeded.**
+
+`no-console` forbids the call, and `eslint-comments/no-use` forbids the directive comment that
+would exempt one line of it — deliberately, and the pair is a good stance for application code.
+Retention is the first feature to need a terminal-facing script: `scripts/startJobSchedulers.js`
+writes the two repeatable jobs into Redis, and **nothing else in the deployment does**, so
+whether it worked is a fact a deployer needs.
+
+Neither of the two ordinary reporting routes is open — `console` by the rules above, and this
+repository's logger by [[Q149]], in precisely the environment a deployer is checking from.
+
+- [x] resolved by throwing, and the asymmetry is deliberate
+      Both scripts now report **only failure**: the schedules that did not register go into a
+      thrown `Error`, which the runtime prints to stderr and exits non-zero for, and a silent
+      exit 0 means all of them did. This needs no exception to either rule and is the ordinary
+      Unix contract for a deployment step.
+
+      **What it gives up** is the on-success list, which was worth having once and never again;
+      the failure list is the fact that carries. Recorded because the next script to be written
+      here will meet the same wall, and reaching for `process.stdout.write` to get around
+      `no-console` would be the wrong answer to it.
+
+## Q151 · upstream-defect · blocking: no
+
+**Raised at** checkpoint 7 of #retention, 2026-09-28.
+<!-- spec: retention -->
+
+**A scheduled job in `@openreachtech/renchan-job-bullmq@1.1.3` silently ignores its own
+dispatcher's queue options, so a retry budget and a completed-job bound declared in the obvious
+place govern nothing.**
+
+The two `Queue` instances for one job are built by different classes, and only one of them is
+given the job's options:
+
+| | builds the queue | passes `defaultJobOptions` |
+| :-- | :-- | :-- |
+| `BaseJobDispatcher` | for enqueuing from a caller | **yes** — from the dispatcher's `optionHash` |
+| `BaseJobScheduler.createQueue()` | for upserting the schedule | **no** — `new QueueCtor(jobName, { connection })` and nothing else |
+
+From there the chain is mechanical. BullMQ sets `this.jobsOpts = opts?.defaultJobOptions ?? {}`,
+so the scheduler's queue carries `{}`; `Queue#upsertJobScheduler` persists
+`Object.assign({}, this.jobsOpts, jobTemplate?.opts)` as the template; and `jobTemplate.opts` is
+the scheduler's own `optionHash`. **The dispatcher is nowhere in that path.** A job produced by
+the schedule therefore takes BullMQ's defaults — one attempt, and completed records kept
+forever — however carefully the dispatcher was written.
+
+**Why it reads as correct.** The dispatcher is where a job's options live for every job that has
+a caller, which until this feature was every job in this repository. A scheduled job has no
+caller, so its dispatcher is constructed by nothing, referenced by nothing, and asserted only
+against itself. `expect(Dispatcher.optionHash).toEqual({ … })` passes, protects nothing, and
+reports nothing — the test is true of the getter and false of every job that will ever run.
+
+**How it surfaced.** Checkpoint 7's verifier traced the two queue instances apart. Three source
+docblocks and one test comment had stated the inheritance as fact; the behaviour they promised —
+a retry budget for the weekly trace sweep, and a bounded run of completed sweep records — was
+absent from both purge queues. The second one is the sharper irony: the job that exists to stop
+a store growing without limit was, as configured, the one thing growing without limit.
+
+- [x] worked around here, and the trap stays
+      The options now live on the **schedule template** — the scheduler's `optionHash`, which is
+      the one hash `upsertJobScheduler` actually persists — and are read from the same constants
+      as before, so the two cannot drift. The assertion that pins them moved with them.
+
+      **Nothing prevents the next scheduled job from repeating this.** The framework offers a
+      dispatcher for every job, accepts options on it, and neither warns nor fails when those
+      options reach nothing; the silence is total, and a passing test is part of it.
+      **Removal condition:** a release in which `BaseJobScheduler.createQueue()` passes the
+      dispatcher's `defaultJobOptions` through, or refuses a scheduled job whose dispatcher
+      declares options the schedule will not carry.
+
+**Related:** [[Q148]] — the other place this feature's configuration is accepted without being
+checked. Between them, a scheduled job's *when* and its *how* were both unvalidated by anything
+in the chain.
