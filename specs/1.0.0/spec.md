@@ -637,7 +637,9 @@ while the API is not serving.
 | one correlation chain | every run under one correlation id | across every client |
 
 Every command is read-only and prints ids, states, timings, counts and reason codes. It
-never prints a request body or a result body, which is stricter than any API caller.
+never prints a request body, a result body or the subject label — stricter than any API
+caller, and deliberately so: the database gives the subject a thirty-day clock, and a
+terminal scrollback or a scheduled task's log has no clock at all.
 
 ### Use cases
 <!-- usecases -->
@@ -651,9 +653,9 @@ never prints a request body or a result body, which is stricter than any API cal
 
 - the CLI answers without a run key: runs stalled beyond a threshold, runs failed since a given time, one run with its steps, or every run under one correlation id
 - the CLI reads across clients, not only one
-- the CLI never prints request or result content — ids, states, timings, counts and reason codes only
+- the CLI never prints any of the fields §7 counts as content — not a request body, not a result body, not raw model output, and not the subject label
 - no command the CLI offers changes any run's state
-- a row the CLI prints carries the same facts a list row carries: subject, kind, status, elapsed time, token spend
+- a row the CLI prints carries every fact a list row carries apart from the subject label — run key, kind, correlation id, external ref, status, last completed step, elapsed time, model call count, input and output token counts, and when the run was accepted
 
 
 ## 17. Provider layer
