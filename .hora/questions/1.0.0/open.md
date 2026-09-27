@@ -4382,3 +4382,70 @@ built when the user stopped it.
       observation underneath [[Q101]] holds — reachability in this version has been verified by
       reading rather than by running — but the reason is now known to be a wrong shell rather than
       a broken loader, and it is answerable by moving.
+
+
+## Q141 — a raw database message reaches the client on any environment not named `production`
+
+- category: security
+- blocking: no
+- raised by: checkpoint 8 of `#run-list`
+
+The framework answers an unhandled exception with the driver's own message whenever the
+environment is not literally `production`:
+
+- `@openreachtech/renchan` `RestfulApiRoutesBuilder#createUnknownErrorResponse()` returns
+  `error.message` when `engine.passesThoughError()`
+- `BaseRestfulApiServerEngine#passesThoughError()` is `this.env.isPreProduction()`
+- `renchan-env`'s `isPreProduction()` is `NODE_ENV !== 'production'`
+
+Observed live, over HTTP, as the body of a `500`:
+
+```
+{"content":null,"error":{"message":"SQLITE_ERROR: unrecognized token: \"'\""}}
+```
+
+`AppRestfulApiServerEngine` **already declares** `Database: { 500, 'Database error' }` and
+`Unknown: { 500, 'Unknown error' }` for exactly this. The framework's exception path never consults
+them.
+
+- [ ] open
+      **What needs a person is which `NODE_ENV` a deployment runs.** This repository defines a
+      `live` environment — a `live` block in `sequelize/config.cjs`, a tracked `.env.live`, an
+      `npm run test:live`, and `renchan-env`'s own `isLive()` keyed on `NODE_ENV === 'live'`.
+      Nothing in the repository says whether what ships sets `live` or `production`. If it is
+      `live`, the driver's messages reach clients; if `production`, this is masked.
+
+      **The fix, if it is needed**, is to override `passesThoughError()` on the app's own engine
+      outside development, or to map caught exceptions onto the two envelopes already declared and
+      log the detail server-side. It belongs to the boilerplate rather than to this feature.
+
+
+## Q142 — the query string is unsigned, which now costs disclosure rather than a duplicate charge
+
+- category: security
+- blocking: no
+- raised by: checkpoint 8 of `#run-list`, amending [[Q21]]
+
+`.hora/contracts/1.0.0/client-api.md` fixes the signature as `hex HMAC-SHA256 over timestamp + "."
++ rawBody`. Confirmed in the code: `ApiClientSignatureVerifier#generateSignedPayload()` is
+`` `${timestampHeaderValue}.${rawBody}` ``, and for a GET the raw body is `null`.
+
+**So no part of the query string is signed.**
+
+- [ ] open
+      **[[Q21]] already records that the method, path and idempotency key are unsigned, and judged
+      the harm to be "a duplicate run that gets charged rather than any disclosure". That sentence
+      was true when it was written and is not true now.**
+
+      `GET /v1/ai-runs` carries its entire meaning in its query string. A signature captured inside
+      the 300-second window can be replayed against it with an attacker-chosen query string, and
+      the answer is that client's run history — subject labels, correlation ids, external
+      references and token spend. That is disclosure.
+
+      **[[Q21]]'s own recommended payload does not close it either**: `method + "." + path + "." +
+      timestamp + "." + idempotencyKey + "." + rawBody` names no query string. Whatever payload is
+      settled on has to include it.
+
+      **The timing note from [[Q21]] still holds** — 1.0.0 is unreleased and no client has
+      integrated, so the payload can still change without breaking anyone.
+
