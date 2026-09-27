@@ -111,8 +111,93 @@ Constraint: a model call is never retried automatically (#scope, permanently out
       stub exists to unblock — a frontend building against it — is marked not-applicable for this
       feature too, because the target names no frontend row.
       -->
-- [ ] 5. The modules the implementation needs
-- [ ] 6. Actual API
+- [x] 5. The modules the implementation needs  <!-- skills: the catalog check against @openreachtech/hora-ecosystem 0.1.0; hoc-jest, hor-backend-testing, hor-constant-definition digests. hor-strategy-pattern matched but had no digest and was not handed over — see below -->  <!-- agents: 4; agent-time: ~5600s; wall-time: ~7200s -->
+      <!--
+      **Twelve classes under `app/operatorCommand/`, in three units with the seam fixed by the
+      main session so they could not drift apart.** The finder reads, the reporter prints, the
+      command layer dispatches and returns an exit code. Suite grew from 135/4252 to **145/4728**;
+      `_orders` unchanged at 8/511, correctly — nothing here writes.
+
+      **The catalog was checked once, for the whole checkpoint, before anything was written.**
+      Thirty-three tracked packages; nothing supplies argv parsing, a column formatter, a duration
+      formatter or a cross-client finder. Two near-misses were rejected with reasons rather than
+      by taste: `mentsu-search-condition` sounds like the finder and its own README says it
+      generates no query, and `mentsu-value-inspector`/`value-normalizer` would have placed a
+      second, weaker rule beside rules this repository already owns.
+
+      **One catalog recommendation was overruled here.** `mentsu-process-clerk` offers exit-code
+      helpers, and `JobDispatcherProvider` already declares this repository's own exit constants
+      and *returns* the code rather than exiting inside itself. Installing a package whose own API
+      doc places those helpers outside its public surface, to replace two constants written in the
+      house style, is the worse trade. The catalog's warning was kept: 0/1/2, not a new invention.
+
+      **The reporter makes the subject label structurally unprintable.** Two explicit lists name
+      the eleven printed fields and each is read off the row **by name** — nothing spreads the row,
+      nothing walks its keys — so a field added later prints nothing until someone adds it to both.
+      A dedicated test gives every row a subject reading
+      `SUBJECT-LABEL-MUST-NEVER-REACH-A-TERMINAL` and asserts it appears nowhere, and every other
+      row fixture in the file carries one too, so each character-exact comparison is a further
+      assertion that it did not escape.
+
+      **The finder declined to reuse `AiRunStepRecorder#findAiRunSteps()`, and the reason is the
+      right one.** That method names no `attributes`, so it selects every column including
+      `rejections` — the decision trace, kept 730 days against content's 30, and the recorder's own
+      docblock admits its shape checks cannot tell a person's address from a field path. Reusing it
+      and asking the reporter not to print the column is exactly the arrangement that docblock
+      calls worthless. So the column is never selected. **Where reuse was right it was taken**:
+      the stall threshold is read through `AiRunPageResponseBuilder#buildStalledCondition()` as an
+      injected collaborator, with a spy asserting the delegation — one definition of stalled in the
+      repository, enforced rather than promised.
+
+      **"Failed since" resolves to `finished_at` bounded to the failed status.** There is no
+      `failed_at` column, and `AiRunStatusRecorder` refuses the transition to failed without
+      `finishedAt`, so it is the failure instant rather than a stand-in for it. `accepted_at` would
+      have hidden the run accepted last month and failed a minute ago — the one the command is
+      opened for.
+
+      **Dispatch is a registry, not a branch**: each suite owns its own word, a `.find()` matches
+      it, and `null` is the unknown-word case. A fifth command is a file plus a name; nothing
+      working is edited.
+
+      **Two corrections the main session had to make after the units landed.** `expect.anything()`
+      is banned outright and the finder used it six times — in its three most important tests, the
+      ones proving no content column is selected — so it was replaced with the real seeded ids read
+      out of the database and `expect.any(<Model>)` for the associations. And
+      `value === undefined` was rewritten as `typeof value === 'undefined'`, which four places in
+      `app/` already use; the unit reported finding no precedent.
+
+      **A defect in my own brief, caught by the unit rather than by me.** I named
+      `app/aiRun/AiRunKeyInspector.js` as the run-key rule. It inspects a **`BIGINT` row id** —
+      digits only, nineteen characters — while a run key is `STRING(64)` and every seeded one reads
+      `run-key-10700001`. Followed as written, `run <run-key>` would have exited 2 for every real
+      run key, seeded or minted. The unit refused it and applied the rule this repository had
+      already settled for the same question in `AiRunPageCursor`: printable text within the width
+      of the column that stores it. Recorded in the glossary so the name cannot mislead again.
+
+      **A process miss of mine, reported by two of the three units.** Checkpoint 5's skill match
+      was made late and the names never reached the agents; they worked from the always-on rules,
+      the digests already on disk and the real tree. `hor-strategy-pattern` is the one that would
+      have mattered, for the command dispatch — and the registry the unit built is what that
+      pattern prescribes, so nothing appears to have been lost. Recorded rather than quietly
+      fixed, because "nothing was lost" is a judgement made after the fact.
+
+      **A seeder comment corrected.** The `ai_runs` note claimed its correlation chain showed three
+      shapes of "the last step finished". `ai_run_steps` seeds no row against any of those four
+      runs, so all four report none. The comment now says what the fixture holds, and why adding
+      the steps is not free: #run-list's accepted tests assert those rows with the last step
+      absent.
+
+      Green in WSL: 4728 across 145 suites and 511 across 8, eslint clean. Two runs before this
+      died with `ENOMEM` on untouched suites — 12 CPUs, 11 default jest workers, 7.7 GiB — and the
+      suite passed whole at `--maxWorkers=4`. A run configuration, not a code change; `tests/empty/`
+      holds no test in this repository, so nothing is hidden behind that mode's silence.
+      -->
+- [x] 6. Actual API  <!-- n/a: this feature adds no API operation at all -->  <!-- agents: 0; wall-time: ~30s -->
+      <!--
+      Not applicable for the reason checkpoints 3 and 4 were. §16 opens with "No table and no
+      route", and a command that exists in order to answer while the API is not serving would be
+      undone by having one.
+      -->
 - [ ] 7. Worker
 - [ ] 8. Security audit
 - [ ] 9. Verify the use cases again, against the built API
