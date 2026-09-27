@@ -10,7 +10,7 @@
  6. [x] #run-delivery             backend   depends: run-execution
  7. [x] #asset-media-extraction   backend   depends: run-delivery, provider-layer, media-fetch
  8. [x] #run-list                 backend   depends: run-delivery
- 9. [ ] #run-cancel               backend   depends: run-execution
+ 9. [x] #run-cancel               backend   depends: run-execution
 10. [ ] #operator-cli             backend   depends: run-list
 11. [ ] #retention                backend   depends: run-record, provider-layer, media-fetch
 

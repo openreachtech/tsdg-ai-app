@@ -119,9 +119,14 @@ reached one.
 |---|---|
 | `202` | the run was accepted. The body is `AiRunAcceptedResponse`. **`202` rather than `201`** because nothing has been created for the caller to fetch yet — the use case is "receives a run key back before any work has begun" |
 | `202` | a repeat of the same idempotency key with the same body. It answers the run created the first time, in the same shape, carrying that run's status as it now stands |
+| `202` | a cancellation was recorded, **or one already had been**. The body is `AiRunCancellationResponse` carrying the run's status as it now stands. A run that had already settled records nothing and answers its terminal status, which is what makes asking twice safe rather than exceptional |
 
 A repeat is not `200`: the caller cannot tell from the status whether this was the first
 request or the fifth, and it does not need to. What it needs is the same run key either way.
+
+**Both rules carry over to the cancellation route word for word**, which is where its `202` comes
+from: nothing is created for the caller to fetch, and a second ask must not be distinguishable
+from the first. The state the caller wants travels in `statusName`, not in the status code.
 
 ## How a request is refused
 

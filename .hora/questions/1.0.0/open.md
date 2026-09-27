@@ -4449,3 +4449,87 @@ them.
       **The timing note from [[Q21]] still holds** — 1.0.0 is unreleased and no client has
       integrated, so the payload can still change without breaking anyone.
 
+
+## Q143 — a captured signature cancels any run the client owns
+
+- category: security
+- blocking: no
+- raised by: checkpoint 8 of `#run-cancel`
+
+The signed payload is `` `${timestamp}.${rawBody}` ``. This route's body is empty by contract, so its
+payload is `timestamp + "."` — it names **nothing about which request it authorizes**. The run key
+that decides what gets destroyed travels in the path, and the path is not signed.
+
+Reproduced live by the auditor: one captured `(x-ort-timestamp, x-ort-signature)` pair, replayed
+verbatim, cancelled a **different** run than the one it was captured for, and also answered a
+different method and route entirely. The main session verified the mechanism independently by
+reading `ApiClientSignatureVerifier#generateSignedPayload()`, which carries no method, path or
+query.
+
+- [x] accepted here; the fix belongs to `#run-contract` and the contract
+      **This is the third reading of one root cause, and each was true when written.** [[Q21]]
+      bounded the harm to *"a duplicate run that gets charged rather than any disclosure"*.
+      [[Q142]] amended it to disclosure, at a list route whose whole meaning is its query string.
+      **This is the first route where a replayed signature destroys work** — in-flight work
+      discarded, tokens already spent unrecovered, and a terminal callback reporting a cancellation
+      the client never asked for.
+
+      **It needs no new proposal.** [[Q21]]'s own recommended payload — `method + "." + path + "."
+      + timestamp + "." + idempotencyKey + "." + rawBody` — **would close this**, because the run
+      key is in the path. [[Q142]] had to argue that payload was still insufficient for the query
+      string; this finding argues instead for adopting it, and doing so before a client integrates.
+
+      **Accepted at this gate rather than fixed** because the signing surface is `#run-contract`'s
+      and the payload is the contract's. 1.0.0 is unreleased and no client has integrated, so the
+      payload can still change without breaking anyone — which is the window [[Q21]] named and that
+      is now three findings old.
+
+      **A correction to [[Q142]]'s stated mechanism, found here.** It says "for a GET the raw body is
+      `null`". On a running server a bodyless GET is not signable at all —
+      `ApiClientSignatureVerifier#hasSignatureMaterial()` refuses a request the engine parsed no
+      body for, so it answers `401`. A conformant GET declares `content-type: application/json` and
+      `content-length: 0`. [[Q142]]'s conclusion stands; its mechanism was wrong.
+
+
+## Q144 — two routes take a run key from the path and neither checks what is in it
+
+- category: security
+- blocking: no
+- raised by: checkpoint 8 of `#run-cancel`
+
+`POST /v1/ai-runs/:runKey/cancellations` and `GET /v1/ai-runs/:runKey` both read a caller-supplied
+run key straight into a `where`. A key carrying NUL bytes answers `500` with the driver's own
+message on the SQLite dialect:
+
+```
+POST /v1/ai-runs/run-key%00%00%00-10700003/cancellations
+  -> 500 {"error":{"message":"SQLITE_ERROR: unrecognized token: \"'run-key\""}}
+```
+
+**It is not exploitable in production and not an injection.** The auditor compiled the statement
+under both dialects: MariaDB escapes the NUL and answers a clean `404`; SQLite's C-string parser
+truncates, which **drops** everything after the NUL rather than executing it. Every other hostile
+key answered `404` — a case-shifted key, a trailing space, `%2F`, `' OR 1=1 --`, five thousand
+characters, an RTL override, `__proto__`, `constructor`.
+
+- [x] recorded rather than fixed, and the asymmetry is the reason it is worth recording
+      **A sibling route in this same version already has the check.** `GET /v1/ai-runs?cursor=`
+      answers `422` for exactly this input, because commit `44319d0` added a content guard after
+      the same defect was found there — the round trip judged the encoding and not the content.
+      These two routes never got one.
+
+      **Fixing only this feature's route would make it worse, not better.** There would then be
+      three routes taking a run key and two behaviours, with nothing saying why. The honest fix is
+      one inspector both routes ask, and `GET /v1/ai-runs/:runKey` belongs to `#run-record`, whose
+      gates are closed.
+
+      **What a fix has to get right**, learned when the cursor was guarded: **not** the shape
+      `RunKeyGenerator` mints. It mints 64 lowercase hex, but every run key in the development
+      seeders reads `run-key-10700001`, so a pattern matching the mint would refuse every seeded
+      key and turn a page of tests red for a reason unrelated to the defect. The property that is
+      true of both is printable text within the column's width.
+
+      **Weighed against [[Q143]] recorded beside it**: that one destroys a client's work with a
+      captured signature and is accepted only because its fix is another feature's contract. This
+      one costs a `500` instead of a `404`, on a dialect that does not ship.
+

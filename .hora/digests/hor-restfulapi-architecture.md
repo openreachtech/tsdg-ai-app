@@ -140,7 +140,14 @@ export default class CreateArticleRenderer extends BasePostRenderer {
 | `body` | the parsed request body (POST/PUT/PATCH); for `multipart/form-data`, multer has already run and files are attached |
 | `query` | `expressRequest.query` (the query-string params, all strings) |
 | `context` | the per-request context: `now`, `share`, `env`, `userId` / `userEntity`, and the visa predicates |
-| `request` | the wrapped express request; `request.expressRequest` is the raw request; `request.pathParameterHashProxy` reads path params (`/articles/:articleId`) and returns **`null`** for a missing key rather than `undefined` |
+<!--
+Corrected after checkpoint 3 of #run-cancel: this table named `pathParameterHashProxy`, which the
+tree does not have. `AiRunGetRenderer#extractRunKey()` reads `request.pathParameterHash`. A digest
+is what an implementer reads instead of the skill, so a wrong member name here is a wrong member
+name in the next file written from it.
+-->
+
+| `request` | the wrapped express request; `request.expressRequest` is the raw request; `request.pathParameterHash` reads path params (`/articles/:articleId`) and returns **`null`** for a missing key rather than `undefined` |
 
 ### Method-verb subclasses
 

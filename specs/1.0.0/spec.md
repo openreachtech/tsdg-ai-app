@@ -149,6 +149,7 @@ unaccepted, or any one feature is sent back twice.
 ### Out of scope for now (to be built later)
 
 - Progress while a run is going — an event at each step boundary, and the operator's live stream (#run-progress) → no version yet. Once a service whose runs last minutes rather than seconds is scheduled. Deferred because the client already reads the run back and the operator has the command, so no stated use case is impossible without it. Seam: the worker already records every step boundary in the decision trace, so emitting from those boundaries later changes no step and no run
+- Aborting a provider call already in flight (#run-cancel) → the version that ships the first vendor driver. Deferred because this version ships only the stub driver, which opens no connection, so there is no call in flight to abort and no test of it could be honest. A run still stops at the next step boundary and makes no further calls, which is what a client observes either way. Seam: the stop already travels on the work's own abort signal, which every step boundary already asks, so honouring it inside a driver is a parameter that driver reads rather than a change to the run's shape
 - Video among an asset's media → no version yet. Once the client's upload wizard accepts video. Seam: a medium's kind is a value the request already carries, so adding a kind changes no request shape, and a kind this version does not handle is refused by name rather than ignored
 - Reading legal documents → no version yet. Needs the legal-document catalogue per asset group and the fields to read. Seam: the run contract, the step trace and the consensus settlement are shared by every service, so a new service is a new loop rather than a new contract
 - The session outreach pack → no version yet. Needs the notice template after legal review, the prohibited-phrase list, and the tone. Seam: as above, and the prohibited-phrase list is data with history rather than code
@@ -609,7 +610,7 @@ creates nothing the second time and answers with the state that already holds.
 
 - a queued run that is canceled leaves the queue and ends canceled, having made zero model calls
 - a running run stops at the next step boundary, never mid-step
-- a provider call in flight is aborted, and the tokens spent up to the abort are still recorded
+- the tokens a run spent before it stopped are recorded, and a canceled run reports them
 - cancellation is terminal, and always delivers a terminal callback
 - canceling a run that has already reached a terminal state returns that state, not an error
 - only the client that created a run may cancel it; any other caller is refused
