@@ -352,4 +352,16 @@ Constraint: a model call is never retried automatically (#scope, permanently out
 - [x] 17. Local test environment  <!-- n/a: target names no frontend row -->
 
 ## Acceptance gate
-- [ ] 18. Acceptance (E2E and unit both)
+- [x] 18. Acceptance (E2E and unit both)  <!-- agents: 0; wall-time: ~600s -->
+      <!--
+      Scoped gate run at `.hora/acceptance/1.0.0/retention.md`. **Partial** for the reason every
+      acceptance of this version is: steps 3 and 4 have no equipped delegate. Here the mismatch is
+      sharper than usual — both candidates are frontend-shaped, and this feature has neither a UI
+      nor an API for either of them to read.
+
+      Three things the record carries that a passing verdict would otherwise bury: a medium
+      security finding found and fixed inside this gate, where an unregistered schedule and a
+      working one were indistinguishable; the fourth criterion resting on a derivation between two
+      tested halves rather than one end-to-end purge-then-read pass; and two open upstream defects
+      this feature is built on top of.
+      -->
