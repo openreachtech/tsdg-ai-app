@@ -4805,3 +4805,40 @@ a store growing without limit was, as configured, the one thing growing without 
 **Related:** [[Q148]] — the other place this feature's configuration is accepted without being
 checked. Between them, a scheduled job's *when* and its *how* were both unvalidated by anything
 in the chain.
+
+## Q152 · security-finding · blocking: no
+
+**Raised at** checkpoint 8 of #retention, 2026-09-28. Severity **LOW**.
+
+**Every `.js` file under `app/jobs/` is executed at boot with no allow-list, and this version
+added a third process that does it.**
+
+`DeepBulkClassLoader` does `await import(it)` for every non-dot file under the scanned path and
+only **then** filters by base class. The filter therefore selects what is *bound to a queue*, not
+what is *run* — a file's module top level executes either way. Nothing asks whether the file was
+meant to be there: no allow-list, no naming rule, no per-file opt-in.
+
+**What this feature changed.** The daemon already scanned that directory. `AppJobEngine` now
+points `schedulersPath` at the same one, and `scripts/startJobSchedulers.js` scans it too — and
+the README documents running that script as `NODE_ENV=production npm run schedulers:start`, so
+the directory is now also executed inside a short-lived deployment process that typically holds
+production Redis credentials in its environment.
+
+**Why the same directory was still the right choice.** A second scanned directory would split one
+job across two places, and `DeepBulkClassLoader#loadFileNames()` calls `fs.readdirSync()` with no
+existence guard ([[Q88]]), so a path naming a directory that does not exist raises `ENOENT` at
+boot. `app/jobs/` exists because the daemon already requires it. The two scans cannot collide —
+each filters by its own base class, so a worker is invisible to one and a scheduler to the other.
+
+**This is the framework's design, and the repository already says so unprompted** — the note in
+`scripts/startJobDaemon.js` states it in full, including that a `.js` file arriving by any route
+other than review is a file these processes will execute.
+
+- [ ] open — nothing in code can constrain it
+      The control is a deployment one: treat `app/jobs/` as integrity-sensitive — read-only after
+      deploy, or checksum-verified — because no code in this repository can check what it is
+      about to import before importing it.
+
+      **Removal condition:** a release of the loader that filters file names before importing
+      them, or an allow-list the application supplies. Until then this is a property to deploy
+      around rather than a defect to fix.

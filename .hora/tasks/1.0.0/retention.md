@@ -185,7 +185,7 @@ Constraint: a model call is never retried automatically (#scope, permanently out
       three nulled fields — and that is another feature's operation answering honestly about a run
       this one has swept, not an operation of this feature.
       -->
-- [x] 7. Worker  <!-- skills: hor-execution-placement-pattern, hor-renchan-job-bullmq, hor-constant-definition, hor-backend-testing; digests: hora-skills-ort-renchan 0.2.1 -->  <!-- agents: 3; agent-time: ~3690s; verify-time: ~720s; wall-time: ~6600s -->
+- [x] 7. Worker  <!-- skills: hor-execution-placement-pattern, hor-renchan-job-bullmq, hor-constant-definition, hor-backend-testing; digests: hora-skills-ort-renchan 0.2.1 -->  <!-- cleared: 1; reopened-by: 8; agents: 4; agent-time: ~4675s; verify-time: ~720s; wall-time: ~8400s -->
       <!--
       **Two scheduled workers, on the two queues §19 names, with no request-path surface and no
       producer at all.** `purge-expired-run-content` fires `'0 3 * * *'` and
@@ -246,9 +246,100 @@ Constraint: a model call is never retried automatically (#scope, permanently out
       died with `ENOMEM` in an untouched suite — 12 CPUs, 11 default jest workers, 7.7 GiB — and
       passed on re-run; recorded here rather than as a finding because no code change was
       involved.
+
+      **Reopened by checkpoint 8, and amended.** The audit found that nothing verified the
+      schedules exist, so the daemon now asks Redis which it holds and names any declared one that
+      is missing. The finding and the amendment are recorded at checkpoint 8, where they were
+      found.
       -->
-- [ ] 8. Security audit
-- [ ] 9. Verify the use cases again, against the built API
+- [x] 8. Security audit  <!-- skills: hor-security-audit (invoked in full) -->  <!-- agents: 1; agent-time: ~553s; verify-time: ~553s; wall-time: ~1500s -->
+      <!--
+      **0 HIGH, 1 MEDIUM, 1 LOW, 4 INFO.** The audit ran over this feature's three commits, and it
+      is the first in this version with no HTTP surface to drive — no route, no resolver, no
+      renderer, no producer — so eleven of the skill's checks are genuinely not applicable rather
+      than passed. What this feature touches is personal data and its deletion, and that is where
+      the audit was pointed.
+
+      **The four deletion claims were verified in the main session, not taken on report.** The
+      content purge writes all four things §7 names — `requestBody` and `resultBody` to null,
+      `subjectLabel` to an empty string because its column is NOT NULL, and the stamp — and clears
+      `ai_model_calls.response_body` for the same ids **in the same transaction**. The trace purge
+      deletes field outcomes, steps and model calls keyed on `AiRunId` rather than on the parent
+      step, so no content-bearing orphan can survive its parent. Both batch selections pass
+      `attributes: ['id']`, so the columns the job exists to empty are never read to decide to
+      empty them. And `providerPurgedAt` is written by nothing and read by nothing — the deferred
+      provider delete leaves a null column rather than a false record about personal data, which
+      is the whole reason [[Q147]] deferred it that way.
+
+      **The MEDIUM was fixed rather than recorded, because it is this version's defect family
+      pointed at personal data.** Every retention horizon §7 promises rests on a schedule that
+      exists only once somebody has run one command by hand. Unrun — or run against a different
+      Redis, or orphaned by a `schedulerId` rename — no purge ever fires and the data is kept
+      indefinitely, while the daemon reports itself listening on both purge queues, the queues sit
+      green and empty, and the purge log is silent. Outside production a silent log is also what a
+      working sweep looks like ([[Q149]]). **Nothing anywhere answered "does the schedule exist?"**
+
+      The daemon now asks. It reads back what Redis holds through BullMQ's own
+      `getJobSchedulers()`, compares it against `AppJobSchedulerService.collectScheduleInputs()` —
+      the one declaration, so there is no second list to forget — and logs the id of anything
+      missing. It never throws: callback delivery and asset media extraction share the process.
+
+      **It is bounded by a deadline, and that was not in the brief.** `RedisConnection` sets
+      `maxRetriesPerRequest` to null because BullMQ requires it, so a read against an absent Redis
+      **pends rather than fails**. Unbounded, the check would hang at boot and report nothing — and
+      reporting nothing is the same shape as reporting that everything is registered, which is
+      exactly the confusion the finding is about. Five seconds, matching what
+      `JobDispatcherProvider` already uses against the same Redis.
+
+      **Its honest limit, stated in its own docblock:** the log is production-only, so this is a
+      production control. The log line has never been seen written, because writing it requires
+      that environment.
+
+      The LOW is [[Q152]] — `app/jobs/` is imported wholesale with no allow-list, and this version
+      added a third process that does it. No code in this repository can constrain it; it is a
+      deployment control.
+
+      Green in WSL after the amendment: 4252 across 135 suites and 511 across 8, eslint clean.
+      -->
+- [x] 9. Verify the use cases again, against the built API  <!-- agents: 0; wall-time: ~900s -->
+      <!--
+      **All three use cases hold, and the check had to be made against the built code rather than
+      against an API, because this feature has none.** Nothing here is driven by a request; the
+      gate is therefore a reading of what the two purges write and what the read path does with a
+      run they have written to.
+
+      **"ORT deletes the content of a run once it is no longer needed, on a clock of its own."**
+      Two cron schedules with no producer, each selecting `acceptedAt < horizon` from its own
+      constant. Since checkpoint 8 the daemon also reports a schedule that was never registered,
+      which is what makes "on a clock" checkable rather than assumed.
+
+      **"An operator answering a dispute raised long after the auction closed still reads why a run
+      decided what it did, even though the content itself is long gone."** The content purge writes
+      to exactly two tables — `ai_runs` (three content fields and the stamp) and
+      `ai_model_calls.response_body`. It does not touch `ai_run_steps` or
+      `ai_run_field_outcomes`, so the rows that carry *why* are untouched by construction, and
+      they remain until the trace clock reaches them two years later.
+
+      **And the read path already expects a purged run rather than merely tolerating one.**
+      `AiRunResponseBuilder#buildResult()` guards on `typeof aiRun.resultBody !== 'string'`, and
+      its docblock names the three cases that answer null — a run that never succeeded, **a run
+      past the content purge**, and a body that does not parse. A type check rather than a
+      truthiness test, so the emptied `subject_label` passes through as the empty string it is
+      rather than being read as absent. That was written before this feature existed and is why
+      nothing in the read path needed changing.
+
+      **"ORT changes how long content is kept without changing how long the decision trace is
+      kept."** Two constant files, 30 and 730, reached by two purgers with no shared base and two
+      schedules with different cadences. There is no single place where editing one figure moves
+      the other, which is the point of [[Q147]]'s refusal to parameterise a common base.
+
+      **One honest limit, carried to checkpoint 18.** The fourth criterion — a run past the
+      content horizon still answering why a value was or was not produced — is established here by
+      derivation from two separately verified facts (what the purge writes, and how the read path
+      guards), not by one test that purges a run and then reads it back through the response
+      builder. The derivation is sound and each half is tested; the end-to-end pass is acceptance
+      work, and it is named here so it is not assumed to have happened already.
+      -->
 
 ## Frontend gate
 - [x] 10. Open the frontend  <!-- n/a: target names no frontend row -->
