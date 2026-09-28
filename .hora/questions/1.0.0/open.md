@@ -5009,3 +5009,54 @@ allow-list inside them, which is not.
       Deleting it costs nothing today because nothing reads the operation. The alternative is a
       spec edit naming the one exception, which is worse: a rule with one exception is a rule
       somebody will add a second to.
+
+## Q158 · contradiction · blocking: yes
+
+**Raised at** the go-live preparation of 1.0.0, 2026-09-28.
+<!-- spec: provider-layer -->
+
+**§17 names the wrong switch for turning a real provider on, and the switch it names does
+nothing.**
+
+Three facts, each checkable:
+
+| | |
+| :-- | :-- |
+| §17's data model, on `ai_agent_default_models` | *"which model an agent uses, as data. **Not read this version** — `ai_models.is_default` is the authority on which model answers"* |
+| §17's third acceptance criterion | *"turning a real provider on is a deliberate change of one setting — **`ai_models.is_default`**"* |
+| the code | **nothing reads `is_default`.** It exists as a column on `AiModel` and in two docblock sentences, and that is all. `AiAgentModelBindingFinder` reads `ai_agent_default_models` — the table §17 says is not read — and that is the only thing that decides which model answers |
+
+**Observed, not inferred.** The first real Gemini run of this service was obtained by updating
+`ai_agent_default_models`. `ai_models.is_default` stayed on the stub throughout and changed
+nothing.
+
+**Why this is blocking rather than a wording fix.** It is the sentence an operator reads at
+go-live. Following it, they would set `is_default` on the vendor's row, deploy, and get **stub
+answers with no error, no warning and no sign anything was ignored** — the service would keep
+returning deterministic fixtures while everybody believed a real model was answering. That is
+worse than a failure, because a failure is visible.
+
+It also means `#provider-layer`'s checkpoint passed a criterion the code does not implement.
+Whatever verified it read the seeder rather than switching a model and watching which driver
+answered.
+
+- [x] the specification was corrected, on the author's decision
+      The binding row is named as the switch, and `is_default` is recorded as a column carried for
+      a later version that picks a model with no agent binding — with the warning that setting it
+      changes nothing today. Two approved edits to §17: the `ai_agent_default_models` row of the
+      data model, and the third acceptance criterion. The alternative — changing the code to read
+      `is_default` — was declined: the binding expresses "each agent its own model", which a single
+      global flag cannot.
+
+      **It was demonstrated before it was corrected, and the demonstration is the reason it is
+      recorded rather than quietly fixed.** Configured exactly as the old criterion instructed —
+      `is_default` true on the vendor's row, false on the stub's, binding untouched — a real run
+      came back `succeeded`, with three model calls and 2,598 / 444 tokens, **answered by the
+      stub**. Nothing failed. Nothing warned. A deployment following the specification would have
+      believed a vendor was reading its customers' photographs while a deterministic fixture
+      answered every request, and the only visible sign would have been results that repeated.
+
+      **Still owed, and not this question's to close:** the deployment runbook has to name the
+      binding row, and say that after switching it an operator should run one request and read
+      `ai_model_calls` to see which model answered — because nothing in the running service says a
+      switch was set wrongly.

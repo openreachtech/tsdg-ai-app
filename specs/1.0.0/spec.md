@@ -680,7 +680,7 @@ column detail is in the extract, and the port is expected to match it rather tha
 | `ai_agent_default_instructions_bk` | identical columns | the write-once history sink |
 | `ai_agent_role_instructions` | `AiAgentId`, `role` (TEXT), `saved_at` | the system prompt |
 | `ai_agent_role_instructions_bk` | identical columns | the write-once history sink |
-| `ai_agent_default_models` | `AiAgentId`, `AiModelId`, `saved_at` | which model an agent uses, as data. Not read this version — `ai_models.is_default` is the authority on which model answers |
+| `ai_agent_default_models` | `AiAgentId`, `AiModelId`, `saved_at` | which model an agent uses, as data, and **the row that decides which model answers**. `ai_models.is_default` is carried for a later version that picks a model without an agent binding; nothing reads it today, and a deployment that sets it expecting a model to change would see nothing change |
 | `ai_agent_available_ai_tools` | `AiAgentId`, `AiToolId`, `is_enabled`, `is_default` | which tools an agent may use |
 
 Every editable text is written through the backup mixin, so the live row always holds the
@@ -709,7 +709,7 @@ the admin console that would give it a surface is deferred.
 
 - a default installation answers every service on the stub: no key is read and no outbound connection is opened
 - the stub returns the same answer every time for the same input
-- turning a real provider on is a deliberate change of one setting — `ai_models.is_default` — and any run that used one records which model answered
+- turning a real provider on is a deliberate change of one row — the agent's `ai_agent_default_models` binding — and any run that used one records which model answered
 - prompts, roles, tool schemas and models are read from the database, and changing one needs no deployment; adding a vendor's model still ships a driver class
 - every change to a prompt or a role leaves the previous version readable
 - every model call records the prompt version it used
