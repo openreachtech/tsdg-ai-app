@@ -4842,3 +4842,50 @@ other than review is a file these processes will execute.
       **Removal condition:** a release of the loader that filters file names before importing
       them, or an allow-list the application supplies. Until then this is a property to deploy
       around rather than a defect to fix.
+
+## Q153 · usability-finding · blocking: no
+
+**Raised at** checkpoint 7 of #operator-cli, 2026-09-28.
+<!-- spec: operator-cli -->
+
+**The operator command refuses in complete silence, and a person is the caller it refuses most
+often.**
+
+Observed by running it, not by reading it:
+
+```
+$ NODE_ENV=development node scripts/readAiRuns.js stall 300
+$ echo $?
+2
+$ NODE_ENV=development node scripts/readAiRuns.js stalled three-hundred
+$ echo $?
+2
+$ NODE_ENV=development node scripts/readAiRuns.js
+$ echo $?
+2
+```
+
+Nothing on stdout, nothing on stderr, in all three cases. The exit code is correct and carries the
+distinction §16 wants — `2` is "the arguments were not a command" and a scheduled task reads it
+cleanly. **A person reads nothing at all**, and is not told which words the command answers to.
+
+**No acceptance criterion is violated.** All five of §16's hold, and the section requires no usage
+output. This is friction against the first use case rather than a failure of it: an operator
+hunting a stalled run mistypes one of four words they use rarely, and the command's answer is to
+say nothing.
+
+**Why it was not fixed inside the checkpoint.** Adding it is not a line: the launcher is under
+test for printing nothing at all, the reporter owns stdout and its sink is stdout, and a usage
+message belongs on **stderr** so that piping the answer stays clean. So it crosses two units'
+interfaces and their tests, and widening a checkpoint's scope on the implementer's own judgement
+is what this process exists to prevent.
+
+- [ ] open — a decision for the author
+      The shape, if it is wanted: a second sink for errors, defaulted to `process.stderr`, and one
+      usage line naming the four command words, written whenever the exit code is `2`. Stdout stays
+      untouched, so a runbook piping the answer is unaffected and a scheduled task still reads only
+      the code.
+
+      **The argument against is real too**: a command that prints nothing on refusal cannot print
+      the wrong thing, and every character it emits is a character somebody has to decide is safe —
+      which is the discipline [[Q152]] and §16's content rules already impose on this feature.

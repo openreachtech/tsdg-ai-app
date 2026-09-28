@@ -198,7 +198,64 @@ Constraint: a model call is never retried automatically (#scope, permanently out
       route", and a command that exists in order to answer while the API is not serving would be
       undone by having one.
       -->
-- [ ] 7. Worker
+- [x] 7. Worker  <!-- skills: hor-execution-placement-pattern (run first, as the checkpoint requires), hor-backend-testing, hoc-jest; digests: hora-skills-ort-renchan 0.2.1 -->  <!-- agents: 1; agent-time: ~924s; wall-time: ~2400s -->
+      <!--
+      **The placement skill was run first, as this checkpoint's delegate order requires, and it
+      ruled nothing out — because its subject is writes and this feature has none.** Its decision
+      flow opens "Is it a write? If read-only, return it via an API query / GET and you're done",
+      so a read-only command exits at step one and never reaches the API-or-worker question at
+      all. **The step-one exit does not fit either**, and that is the part worth naming: "return it
+      via a GET" presumes an HTTP caller, and §16's second use case is the exact negation — a read
+      that must answer *while the service will not boot* cannot be served by the service. The
+      skill has no branch for a read whose caller is a person at a terminal, and its "third place"
+      warning is about scattering retry and monitoring for **writes**, which a read has none of.
+
+      So the checkpoint kept all of its work: an entry point, the close discipline, the exit code,
+      the invocation and its documentation.
+
+      **`node scripts/readAiRuns.js`, not `npm run`, and the exit codes decide it.** Here `1` and
+      `2` are ordinary outcomes rather than faults, and npm prints its own error block on any
+      non-zero exit — so every refused argument would come back wrapped in `npm ERR!` lines,
+      breaking both the guarantee that the reporter owns every character leaving the process and a
+      scheduled task's ability to read the code cleanly. `package.json` was left alone.
+
+      **The database is closed on every path, and the route was verified rather than assumed.**
+      `SequelizeActivator` has no close method of any name — only getters — so the close belongs to
+      the client it exposes: `activator.sequelize.close()`, in a `finally`. Answered, refused and
+      could-not-answer are all returns and leave through it; a throw does too. The executor is
+      injected as a **class** and built after activation, so the ordering no caller can get wrong
+      is the only ordering there is.
+
+      **The script itself is two statements, and the reason is worth keeping:** a script is the one
+      thing in this repository no test can call, because importing it runs it and running it exits
+      the runner. So everything a decision rests on sits in a class that is testable, and the file
+      holds only what cannot be.
+
+      **`ProcessClerk` is used, and no package was installed.** Checkpoint 5 declined to install
+      `mentsu-process-clerk` on the catalog's recommendation; what neither the catalog check nor I
+      noticed is that `@openreachtech/renchan-job-bullmq` — already a dependency — re-exports the
+      same class, and `JobDispatcherProvider` already consumes it through exactly the
+      `createProcessClerk()` / `ProcessClerkCtor` seam this launcher uses. The decision not to
+      install stands; the reasoning behind it was working from an incomplete picture.
+
+      **I ran the command for real, against the seeded database, because nobody had.** All four
+      answer: `stalled 300` prints an aligned table, `run run-key-10010004` prints the run and its
+      seven steps in order, `correlation correlation-id-10700000` prints the four-run chain
+      earliest-first with all four statuses, `failed-since` prints failed runs. Three refusals —
+      a malformed parameter, an unknown word, no arguments at all — each exit `2`. No subject label
+      appears anywhere in any of it.
+
+      That run also made a fixture defect visible rather than inferred: every row of the
+      correlation chain shows `-` for the last completed step, which is the seeder comment
+      corrected at checkpoint 5.
+
+      **And it found what reading could not.** A refusal prints nothing at all — not on stdout, not
+      on stderr — so a person who mistypes one of four rarely-used words learns nothing. No
+      criterion is violated and the exit code is right, so the scope was not widened on my own
+      judgement; it is [[Q153]], with the shape a fix would take and the argument against it.
+
+      Green in WSL at `--maxWorkers=4`: 4765 across 146 suites and 511 across 8, eslint clean.
+      -->
 - [ ] 8. Security audit
 - [ ] 9. Verify the use cases again, against the built API
 
