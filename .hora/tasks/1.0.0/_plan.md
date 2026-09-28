@@ -16,7 +16,7 @@
 
 ## Acceptance
 
-- [ ] Sweep the whole version, once every feature above is done
+- [x] Sweep the whole version, once every feature above is done
       Version criteria: 6 (#version-acceptance-1-0-0), 0 resting on a not-accepted feature
 
 ## Not accepted

@@ -4931,3 +4931,81 @@ content leak**, and that is why it is LOW rather than higher.
       **Removal condition:** those three blocks setting `logging` explicitly, whichever way the
       team decides. Silence is the one answer that leaves a reader guessing which environment
       prints SQL.
+
+## Q155 · upstream-defect · blocking: no
+
+**Raised at** the whole-version sweep of 1.0.0, 2026-09-28. Severity **MEDIUM**, **fixed here** —
+recorded so the fix is not undone by someone who does not know what it holds shut.
+
+**The `mariadb` driver appends a statement's bound parameter values to the message of any error it
+raises, and that is how a run's result body reached a permanent job record.**
+
+The chain, every link measured rather than read:
+
+| | |
+| :-- | :-- |
+| `logParam` defaults to **`true`** | `node_modules/mariadb/lib/config/connection-options.js:74` |
+| the gate is at the call site, not inside the formatter | `lib/cmd/command.js:44` and `:83` — `this.opts.logParam ? this.displaySql() : this.sql` |
+| `displaySql()` truncates only when the **SQL alone** passes `debugLen` (256) | `lib/cmd/parser.js:670-682` |
+| the terminal write that stores a result body is **135 characters** | so it is far under the bound, and ~100 characters of the result body are appended |
+| Sequelize passes the driver's message through untouched | `lib/errors/database-error.js` — `super(parent.message)` |
+| the AI run job does not swallow it, and BullMQ persists it as `failedReason` | `bullmq/dist/cjs/classes/job.js` |
+
+**This broke §22 outright** — *"no log written anywhere carries an image, a document or question
+content"* — by a route **no single feature's audit could see**, because every link in it belongs to
+a different feature. The whole-version pass is the only place it was visible.
+
+- [x] closed at the source, and bounded as a second lock
+      `sequelize/config.cjs` now hands `dialectOptions: { logParam: false }` to every non-SQLite
+      environment, which stops the appending for **every** statement rather than for the one that
+      happens to be short enough today. And `BaseAiRunJobDispatcher` and
+      `DeliverRunCallbackJobDispatcher` now bound `removeOnComplete`/`removeOnFail` at 90, the
+      figure retention already chose — so anything that still escapes is transient rather than
+      permanent.
+
+      **Do not remove either without the other.** The first depends on a library default that a
+      later version could reverse; the second is what limits the damage if it does.
+      **Removal condition:** a `mariadb` release that no longer puts parameter values into an error
+      message, verified at `lib/cmd/command.js`'s own branch.
+
+## Q156 · security-finding · blocking: no
+
+**Raised at** the whole-version sweep of 1.0.0, 2026-09-28. Severity **LOW**.
+
+**Outside production the framework returns a raw error message to the caller, and the environment
+named `live` is the least safe one to run live on.**
+
+`RestfulApiRoutesBuilder` answers `passesThoughError() ? error.message : 'Unknown Error'`, and that
+predicate is `isPreProduction()`, i.e. `!isProduction()`. **Production is correctly masked**, so the
+skill's check 22 passes. In `live` and `staging` a database error is returned to the caller in the
+500 body.
+
+**The compounding is the point.** The block named `live` hard-codes `root`/`password`, the
+structured logger is silent there ([[Q149]]), Sequelize echoes SQL there ([[Q154]]), and now error
+messages reach the caller there. `pm2.config.cjs` offers only `development` and `production`, so
+nothing deploys under `live` today — this is a naming hazard rather than a live defect, but the
+name is an invitation.
+
+- [ ] open — two independent decisions
+      Masking in every environment is one; §7's "Error leakage" row states its rule with no
+      environment exemption, and the framework's behaviour is the exemption. Renaming `live` to
+      something nobody could read as "the live one" — `ci`, say — is the other, and it is cheap.
+
+## Q157 · security-finding · blocking: no
+
+**Raised at** the whole-version sweep of 1.0.0, 2026-09-28. Severity **LOW**.
+
+**A guest allow-list exists, and §7 says none does.**
+
+Both GraphQL engines carry `schemasToSkipFiltering: ['healthCheck']`. §7: *"Nothing is reachable
+without it: no public route, no health check, no guest allow-list."* The operation returns a bare
+`true` and both servers bind to loopback, so the exposure is negligible — the finding is that the
+document and the code disagree, in a row the document wrote absolutely.
+
+The two GraphQL servers themselves are already recorded as undeclared boilerplate; this is the
+allow-list inside them, which is not.
+
+- [ ] open — delete the entry, or let §7 say what it permits
+      Deleting it costs nothing today because nothing reads the operation. The alternative is a
+      spec edit naming the one exception, which is worse: a rule with one exception is a rule
+      somebody will add a second to.
