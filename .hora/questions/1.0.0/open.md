@@ -4889,3 +4889,45 @@ is what this process exists to prevent.
       **The argument against is real too**: a command that prints nothing on refusal cannot print
       the wrong thing, and every character it emits is a character somebody has to decide is safe —
       which is the discipline [[Q152]] and §16's content rules already impose on this feature.
+
+## Q154 · security-finding · blocking: no
+
+**Raised at** checkpoint 8 of #operator-cli, 2026-09-28. Severity **LOW**.
+
+**Outside development, Sequelize echoes every query it runs to standard output, because
+`sequelize/config.cjs` sets `logging: false` for that one environment only.**
+
+`live`, `staging` and `production` leave the key unset, and Sequelize then defaults it to
+`console.log`. `SequelizeClientGenerator` spreads the config block straight into `new Sequelize(…)`
+and injects no default of its own, and `SequelizeActivator.createAsync()` accepts **no logging
+option**, so no consumer can override it — the fix, whatever it is, belongs to that config file.
+
+**Why it surfaced here.** The operator command is the first surface in this version whose stated
+control *is* that one class owns every character on standard output. Three docblocks rested on it.
+In production the report would arrive interleaved with `Executing (default): SELECT …` lines, which
+falsifies the claim and makes the output harder to paste into a runbook. Those three docblocks now
+say what is true — the reporter owns every character **this command itself writes** — and name the
+exception.
+
+**What it does not do, measured rather than assumed.** I ran a probe against a Sequelize instance
+with logging on and inspected the lines it produced:
+
+| statement | what the logged line carried |
+| :-- | :-- |
+| `INSERT` | `INSERT INTO \`probes\` (\`id\`,\`bodyText\`) VALUES (NULL,$1)` — **a bound parameter, not the value** |
+| `SELECT` | the `where` value **escaped inline**: `WHERE \`Probe\`.\`bodyText\` = 'SECRET-CONTENT-…'` |
+
+So a write's content — a request body, a result body, a subject label — does **not** reach the log.
+What reaches it is whatever a query filters on, which for this service is ids: run keys,
+correlation ids, client ids, request keys. §7's Logging row permits ids. **This is therefore not a
+content leak**, and that is why it is LOW rather than higher.
+
+- [ ] open — a decision with reach beyond this feature
+      Adding `logging: false` to the three remaining blocks is one line each and would restore the
+      stdout claim in full. It also changes what the API server and the job daemon put in their
+      own output, which is an operational decision rather than this feature's to take — which is
+      why the docblocks were corrected here instead.
+
+      **Removal condition:** those three blocks setting `logging` explicitly, whichever way the
+      team decides. Silence is the one answer that leaves a reader guessing which environment
+      prints SQL.

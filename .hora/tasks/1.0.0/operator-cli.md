@@ -256,8 +256,107 @@ Constraint: a model call is never retried automatically (#scope, permanently out
 
       Green in WSL at `--maxWorkers=4`: 4765 across 146 suites and 511 across 8, eslint clean.
       -->
-- [ ] 8. Security audit
-- [ ] 9. Verify the use cases again, against the built API
+- [x] 8. Security audit  <!-- skills: hor-security-audit (invoked in full) -->  <!-- agents: 1; agent-time: ~576s; verify-time: ~576s; wall-time: ~2700s -->
+      <!--
+      **0 HIGH, 1 MEDIUM, 2 LOW, 2 INFO — and all three actionable findings were fixed rather than
+      accepted.** Eleven of the skill's checks are genuinely not applicable: this feature opens no
+      socket, declares no port and exposes no endpoint, so the questions about authorization, CORS,
+      rate limiting and introspection have nothing to read. What it has instead is a command that
+      opens a deployment's database and prints to a terminal, and that is where the audit was
+      pointed.
+
+      **The MEDIUM is the finding of this version I would least have found by reading.** A
+      correlation id and an external ref are a caller's own text, and the rule that admits them
+      (`isFilledText` + `isStorableText`) bounds their **length and nothing else** — so an escape
+      sequence is storable. The reporter applied no escaping, so `ESC [ 2 K` and `ESC [ 1 A`
+      reached the terminal, which acts on them: a value stored months ago could erase the line the
+      operator is reading and put the next one over the top of it. **The report this command exists
+      to produce could be edited by the data it reports** — and it is read precisely when the
+      service will not answer and there is no second place to look.
+
+      I proved it before fixing it: a probe handing the reporter a row with
+      `corr\u001b[2K\u001b[1Aerased` showed the bytes arriving at the sink raw. The guard sits in
+      `generateTextCell()`, the one method every text cell passes through, and replaces C0 and DEL
+      with a **visible** `?` rather than stripping them — a silently shortened cell reads as
+      ordinary text, and an operator should be able to see that somebody stored something strange.
+      Written as two code-point bounds, because a regular expression carrying a control character
+      is itself refused by lint and the comment that would excuse it is refused too. Four cases
+      pin it, and the probe re-run confirms the bytes are gone.
+
+      **The first LOW was a docblock asserting a control that did not hold** — the version's own
+      defect family, caught by a separate reader. `reportFailure()`'s note said it logs "no
+      parameter the operator typed", and its body interpolated `error.message`: a Sequelize error
+      is built from its driver's message, and the driver appends the failing SQL with the `where`
+      value escaped inline. So the run key the operator typed would have gone into a file with no
+      retention clock, under a comment saying it did not. Now it logs `error.name`, following the
+      precedent `BaseAiRunPurgeJobWorker` set for the same reason — and a third test case gives an
+      error exactly that shape, so the parameter appearing anywhere in the line fails the
+      comparison. The two existing cases both used a bare `Error`, so both asserted the same name
+      and neither could have caught a method that logged a constant; they now carry different ones.
+
+      **The second LOW is [[Q154]], and it narrowed a claim rather than changing shared config.**
+      Outside development Sequelize echoes every query to standard output, so "the reporter owns
+      every character that leaves this process" — stated in three docblocks — is false there. I
+      measured what those lines carry rather than assuming: an `INSERT` logs a **bound parameter**,
+      so written content never reaches the log, while a `SELECT` inlines its filter value, which
+      for this service is ids, and §7 permits ids in logs. **Not a content leak.** The three
+      docblocks now say "every character this command itself writes" and name the exception; the
+      config change belongs to whoever owns the service's operational logging.
+
+      **The two INFO items are pre-existing and already recorded** — hard-coded credentials in the
+      `live` and `staging` config blocks, and a `.gitignore` rule that would not catch a future
+      `.env.production`. Neither is in this feature's change set.
+
+      **What the audit confirmed rather than found**, each verified against source: no operator
+      value reaches an identifier position in any query, so the deliberately permissive run-key
+      rule cannot become an injection; the finder never selects a content column and the reporter
+      never reads the subject label, two independent locks; the five model calls in the whole layer
+      are `findAll`/`findOne` and nothing opens a transaction; and the whole `env` object handed to
+      the logger is never serialized.
+
+      Green in WSL at `--maxWorkers=4`: 4770 across 146 suites and 511 across 8, eslint clean.
+      -->
+- [x] 9. Verify the use cases again, against the built API  <!-- agents: 0; wall-time: ~900s -->
+      <!--
+      **All three hold, and each was checked by running or measuring something rather than by
+      reading the code that claims it.** There is no API to verify against — this feature builds
+      none — so the gate is the command itself.
+
+      **"An operator finds the run they need without a run key in hand."** All four commands were
+      run against the seeded database at checkpoint 7. `stalled 300` answers an aligned table of
+      runs across several clients; `failed-since` answers failed runs; `correlation
+      correlation-id-10700000` answers the four-run chain earliest-first with all four statuses;
+      `run run-key-10010004` answers that run and its seven steps in order. Three of the four
+      questions take no run key, which is the use case exactly.
+
+      **"An operator still reads what the runs are doing when the service will not boot."** This is
+      the use case that distinguishes the feature, so a one-level grep was not enough. I walked the
+      import graph from `scripts/readAiRuns.js` transitively: **34 files reachable, none under
+      `server/`**, and the only top-level areas touched are `app/`, `scripts/` and `sequelize/`.
+      The command cannot be broken by whatever stops the transport layer from booting, because it
+      never loads it.
+
+      **"An operator pastes a run check into a runbook step or a scheduled task."** It is a command
+      and not a screen, and it ends under a code a task can branch on without reading the output:
+      `0` observed on all four answers, `2` observed on a malformed parameter, an unknown word and
+      no arguments at all. `1` is the read-failed path, covered by test rather than by a forced
+      outage.
+
+      **The five acceptance criteria.** Answers without a run key — yes, three of four commands.
+      Reads across clients — the finder carries no `ApiClientId` in any condition and does not even
+      select the column, with a test per list method asserting runs of different clients come back
+      together, so a client filter added later goes red. Never prints content — the finder selects
+      no content column and the reporter reads the subject label off nothing; both locks verified
+      at checkpoint 8, and a probe confirms the label is absent from real output. No command
+      changes state — the whole layer's five model calls are `findAll`/`findOne`, with no
+      transaction anywhere. A row carries every fact a list row carries but the subject — all
+      eleven columns present in the output I ran.
+
+      **One limit worth stating rather than leaving implied.** The `1` exit code and the
+      database-would-not-open path have never been exercised against a real failure, only against
+      a stubbed one. Forcing it means taking the database away mid-run, which this environment
+      shares with the suite. Named here so acceptance does not assume it was seen.
+      -->
 
 ## Frontend gate
 - [x] 10. Open the frontend  <!-- n/a: target names no frontend row -->
@@ -270,4 +369,14 @@ Constraint: a model call is never retried automatically (#scope, permanently out
 - [x] 17. Local test environment  <!-- n/a: target names no frontend row -->
 
 ## Acceptance gate
-- [ ] 18. Acceptance (E2E and unit both)
+- [x] 18. Acceptance (E2E and unit both)  <!-- agents: 0; wall-time: ~600s -->
+      <!--
+      Scoped gate run at `.hora/acceptance/1.0.0/operator-cli.md`. **Partial** for the reason every
+      acceptance of this version is: steps 3 and 4 have no equipped delegate, and here both
+      candidates are frontend-shaped against a feature with neither a screen nor an API.
+
+      Six things the record carries that a passing verdict would bury: the MEDIUM fixed inside the
+      gate, where stored data could edit the report it appeared in; two notes that asserted
+      controls they did not have; a refusal that prints nothing to a person; a failure path never
+      seen against a real failure; and a defect in my own brief that an implementer caught.
+      -->
