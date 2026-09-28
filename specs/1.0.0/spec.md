@@ -149,8 +149,6 @@ unaccepted, or any one feature is sent back twice.
 ### Out of scope for now (to be built later)
 
 - Progress while a run is going — an event at each step boundary, and the operator's live stream (#run-progress) → no version yet. Once a service whose runs last minutes rather than seconds is scheduled. Deferred because the client already reads the run back and the operator has the command, so no stated use case is impossible without it. Seam: the worker already records every step boundary in the decision trace, so emitting from those boundaries later changes no step and no run
-- Deleting from a provider what was uploaded to it (#retention) → the version that ships the first vendor driver. Deferred because this version ships only the stub driver, which uploads nothing: `prepareAttachedFiles()` returns the files unchanged, so no row is ever written to the egress record, the expiry column is written null at its only call site, and the base processor exposes no member through which any job could ask a provider to delete anything. A job built now would stamp "the copy was deleted" without having deleted a copy, which records a false fact about personal data rather than leaving a criterion unmet. Seam: the egress record and its purge stamp already exist, so the job is a driver member and a scheduled sweep rather than a change to what is stored
-- Aborting a provider call already in flight (#run-cancel) → the version that ships the first vendor driver. Deferred because this version ships only the stub driver, which opens no connection, so there is no call in flight to abort and no test of it could be honest. A run still stops at the next step boundary and makes no further calls, which is what a client observes either way. Seam: the stop already travels on the work's own abort signal, which every step boundary already asks, so honouring it inside a driver is a parameter that driver reads rather than a change to the run's shape
 - Video among an asset's media → no version yet. Once the client's upload wizard accepts video. Seam: a medium's kind is a value the request already carries, so adding a kind changes no request shape, and a kind this version does not handle is refused by name rather than ignored
 - Reading legal documents → no version yet. Needs the legal-document catalogue per asset group and the fields to read. Seam: the run contract, the step trace and the consensus settlement are shared by every service, so a new service is a new loop rather than a new contract
 - The session outreach pack → no version yet. Needs the notice template after legal review, the prohibited-phrase list, and the tone. Seam: as above, and the prohibited-phrase list is data with history rather than code
@@ -617,6 +615,7 @@ creates nothing the second time and answers with the state that already holds.
 - only the client that created a run may cancel it; any other caller is refused
 - a canceled run is distinguishable from a failed run in the list
 - canceling another client's run answers as though the run did not exist, and that run is left unchanged
+- canceling a run that is waiting on a provider stops the waiting rather than waiting it out; the call in flight records no tokens, and the provider charges for it regardless, so a bill and the recorded token counts will not reconcile for such a run
 
 
 ## 16. Operator CLI
@@ -798,6 +797,13 @@ content is gone stays distinguishable from one that never carried any. Three of 
 are set to null; `subject_label` is set to an empty string, because its column is NOT NULL
 and stays so.
 
+A provider states when it will drop its own copy, and that instant is what the egress row
+carries. Where it states none, this service waits one day from sending — long enough that a
+run bounded at 300 seconds can never have a copy pulled out from under it, short enough that
+a copy nobody dated is not held indefinitely. Being told a handle is unknown counts as the
+copy being gone; anything else leaves the row unstamped, because a stamp that says a copy was
+deleted when it was not is a false record about personal data.
+
 ### Use cases
 <!-- usecases -->
 
@@ -813,6 +819,8 @@ and stays so.
 - a run whose content has been purged is distinguishable from one that never carried any
 - a run past the content horizon but inside the trace horizon still answers why a value was or was not produced
 - the record of what left this service for a provider is kept, and carries when the provider stated it expires
+- a copy this service sent to a provider is taken back on this service's own clock and the row says when: a copy the provider confirms gone is stamped, and a copy whose state the provider would not confirm is left unstamped and asked about again
+- a copy the provider stated no expiry for is taken back one day after it was sent, because nothing at the provider's end will ever remove it
 
 
 ## 20. Asset media extraction
