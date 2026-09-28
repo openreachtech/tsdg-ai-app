@@ -228,3 +228,65 @@ shape to the API surface.
    `ai_agent_default_models` as the switch that turns a real provider on, and say to run one
    request afterwards and read `ai_model_calls` to see which model answered — because nothing in
    the running service says a switch was set wrongly. No runbook exists under `docs/` yet.
+
+## Run 3
+<!-- reach: full -->
+<!-- scope: run-contract, run-record, run-execution, run-delivery, run-list, run-progress, run-cancel, operator-cli, provider-layer, media-fetch, retention, asset-media-extraction -->
+<!-- live: yes -->
+<!-- reuse: none -->
+<!-- not-accepted: none -->
+<!-- version-criteria: 6 of 6 checked; 5 held, 1 recorded short -->
+<!-- environment: local stack on WSL, SQLite, seeded 2026-09-28 -->
+
+### Verdict
+
+passed
+
+The retake of Run 2, after its one blocking finding was corrected. Nothing else in the tree
+changed between the two runs but the one method that finding named and the tests that now hold it.
+
+### What ran
+
+| Step | Delegate | Result |
+|---|---|---|
+| environment | brought up directly | ready |
+| unit (backend) | `hor-backend-testing`, `hoc-jest`, `hoc-test-execution` | **163 suites / 5287 tests** and **8 / 531**, executed for real, all passing. Thirteen more than Run 2: the six that drive HTTP, and seven pinning the two cases the corrected method now tells apart |
+| scenarios | — | no equipped delegate; unchanged from Run 2 |
+| review | — | no equipped delegate; the version's criteria were driven directly |
+| version criteria | — | 6 of 6 checked; 5 held, criterion 4 recorded short for the same reason as in Run 2 |
+| UX | — | not in scope: no frontend row |
+| security | — | not re-run. Run 2's whole-repository audit stands, and the change since it is one method whose security property was tested directly (below) |
+
+### What changed since Run 2
+
+**[[Q159]] is closed, and criterion 1 is now held with no qualification.** Run 2 recorded that the
+whole pass was demonstrated only with a client able to frame a body on a `GET`. The script that had
+answered `401` twelve times running now returns `200 succeeded` on its first attempt, and the
+read-back body matches the terminal callback field for field.
+
+**The guard the correction had to preserve was tested, not argued.** A `POST` carrying bytes no
+parser claims, signed as though it carried none, is still answered `401`; a `POST` genuinely
+carrying no body, signed the same way, is still answered `202`. The signature verifier was not
+modified, so its rule and its stated reasoning stand exactly as written.
+
+**The test gap Run 2 named as the reason nothing caught this is paid.** Six tests now drive HTTP
+against a real server on an operating-system-assigned port. Reverting the one-method correction
+turns **four of the six red**, which is what says they hold anything; the two that stay green are
+the unsigned cases, which must pass either way.
+
+### Findings
+
+1. **Criterion 4 is recorded short again, for the reason Run 2 gave and this run did not change.**
+   The logger writes only under `NODE_ENV=production`, so no environment available here can
+   demonstrate what a log carries. The criterion was checked by reading every call site instead;
+   [[Q162]] is the one exception, and it has no path to content today.
+
+2. **Run 2's open items stand, none of them blocking**: [[Q160]] `public/` served unsigned on all
+   three ports, [[Q161]] the GraphiQL console mounted outside `NODE_ENV=production`, [[Q162]] the
+   last raw `error.message` in a log line, [[Q163]] two GraphQL servers the product does not use —
+   removing which would close five findings at once. The long-standing [[Q24]], [[Q154]], [[Q156]]
+   and [[Q157]] are unchanged.
+
+3. **Still owed from [[Q158]]:** no deployment runbook exists under `docs/`. It has to name
+   `ai_agent_default_models` as the switch that turns a real provider on, and say to run one
+   request afterwards and read `ai_model_calls` to see which model answered.

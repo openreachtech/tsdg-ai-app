@@ -5105,7 +5105,7 @@ though it had been empty. That is the case the current shape exists to refuse, a
 says so: *"A raw body the server never parsed is absent, not empty, and leaves nothing to
 verify."* So the change has to be narrower than the one-liner:
 
-- [ ] open — the author decides which
+- [x] the code was corrected, on the author's decision
       **Accept an absent body only where the request declared none** — no `content-length` and no
       `transfer-encoding` — and keep refusing one the parser saw and declined. This restores the
       declared operations without widening what a `POST` may skip.
@@ -5260,3 +5260,36 @@ disk. The middleware is unnecessary surface, not a disk-consumption route.
 - [ ] open — removing the two engines would close five of this sweep's findings in one change,
       and is the single highest-value item on this list. It is a deletion inside accepted
       features, so it is the author's to schedule rather than this sweep's to make.
+
+**Resolved, 2026-09-28 — the first option was taken, and the second was already impossible.**
+
+`AppRestfulApiContext.extractRawBody()` now answers `''` for a request that declared no body
+bytes and keeps answering `null` for one that declared bytes nothing parsed;
+`AppRestfulApiContext.declaresEmptyBody()` reads the framing headers, which are the only account
+of a body a process that parsed none has. **`ApiClientSignatureVerifier` was not touched**, so its
+rule — anything that is not a string is refused — and the reasoning in its docblock both stand
+exactly as written. What was corrected is a method that answered for a case that reasoning never
+covered.
+
+**Measured against the running service, with the client that could not reach it before:**
+
+| the request | before | after |
+| :-- | :-- | :-- |
+| a plain Fetch `GET`, signed, on either read-back route | `401` | **`200`** |
+| the same with no signature, or a wrong one | `401` | `401` |
+| a signed `GET` for another client's run | unreachable | **`404`**, as though it did not exist |
+| a `POST` carrying bytes no parser claims, signed as empty | `401` | **`401`** — the guard is unchanged |
+| a `POST` genuinely carrying no body, signed as empty | `202` | `202` |
+
+The whole pass was then driven end to end by the very script that had answered `401` twelve times
+running: it came back `200 succeeded` on its first attempt, and the read-back body matched the
+terminal callback field for field.
+
+**The test debt this question named is paid, and it was the real defect.** Six tests now drive
+HTTP against a real server on a port the operating system picks — both routes signed and answered,
+both refused unsigned, and another client's run answering `404`. Reverting the one-method fix turns
+**four of the six red**; the two that stay green are the unsigned ones, which must pass either way.
+Before them, **no test in either suite reached this service's own routes over HTTP**, which is why
+eleven feature gates and a whole-version sweep passed over an operation no client could call.
+
+Suites after the change: **163 suites / 5287 tests** and **8 / 531**, all passing.
