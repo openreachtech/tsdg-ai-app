@@ -5060,3 +5060,203 @@ answered.
       binding row, and say that after switching it an operator should run one request and read
       `ai_model_calls` to see which model answered — because nothing in the running service says a
       switch was set wrongly.
+
+## Q159 · contradiction · blocking: yes
+
+**Raised at** the whole-version sweep of 1.0.0, 2026-09-28.
+<!-- spec: run-delivery -->
+
+**A conforming client cannot call either read-back route. Both answer `401` to a request sent
+the way every HTTP client sends a `GET`.**
+
+Section 16's operation table declares `GET /v1/ai-runs/:runKey` and `GET /v1/ai-runs` as
+operations of *"the client system that created the run"*. Neither can be authenticated unless
+the client frames a zero-length body on a method that conventionally carries none.
+
+**Measured against the running service, not read off the code.** The same client id, the same
+secret, the same signature construction that `POST /v1/asset-media-extractions` accepts:
+
+| the request | answer |
+| :-- | :-- |
+| `GET /v1/ai-runs/:runKey`, no body — what `fetch`, and `curl` with no data flag, send | **`401 Unauthenticated`** |
+| the same, with a `content-length: 0` header but still no framed body | **`401 Unauthenticated`** |
+| the same, with an actually framed empty body and a content type the parser reads | **`200`**, the run |
+| `GET /v1/ai-runs`, framed empty body | `200`, the list |
+| `POST /v1/ai-runs/:runKey/cancellations`, empty body — the shape section 16 declares | `202`, unaffected |
+
+**The mechanism.** `ApiClientSignatureVerifier#hasSignatureMaterial()` requires
+`typeof rawBody === 'string'`, and `rawBody` is set only by the body parser's verify callback
+(`AppRestfulApiServerEngine#defineKeepRawBodyCallback()`), which does not run when there is no
+body to parse. `AppRestfulApiContext.extractRawBody()` then answers `null`, and the signature is
+refused before any digest is compared. The cancellation route is unaffected because the clients
+that call it send a framed body even when it is empty.
+
+**Why no suite caught it, and why no per-feature gate could have.** The refusal is deliberate at
+the unit level and asserted there — `tests/__tests__/server/restfulapi/contexts/AppRestfulApiContext.js`
+carries a case whose comment reads *"rawBody: absent, because the server parsed no body"* and
+asserts the request is **not** signed. The two GET renderers are tested by calling their members
+directly. **No test in either suite drives HTTP against this service's own routes at all**, so the
+unit level agrees with itself and the declared operation is the thing nobody exercised.
+
+**The fix is a design decision, which is why this is recorded rather than changed.** Reading an
+absent raw body as the empty string would restore both routes in one line, and it would also mean
+a request whose body the parser *declined* — a content type that did not match — verifies as
+though it had been empty. That is the case the current shape exists to refuse, and the docblock
+says so: *"A raw body the server never parsed is absent, not empty, and leaves nothing to
+verify."* So the change has to be narrower than the one-liner:
+
+- [ ] open — the author decides which
+      **Accept an absent body only where the request declared none** — no `content-length` and no
+      `transfer-encoding` — and keep refusing one the parser saw and declined. This restores the
+      declared operations without widening what a `POST` may skip.
+
+      **Or state the requirement in section 16** and leave the code as it is: a client calling
+      either read-back route sends a zero-length body with a content type the service parses. This
+      costs nothing in code and puts an unconventional demand on every client library.
+
+      Either way **the deployment runbook and the client-facing description have to agree with
+      whichever is chosen**, and a test that drives HTTP against these two routes is owed —
+      without one, the next change to the parser breaks them again silently.
+
+**Added during the same sweep, and it removes the second option above.** The workaround the
+second choice would ask of every client — send a zero-length framed body on a `GET` — **cannot be
+performed by the Fetch API at all.** Node's own `fetch`, and every browser and library built on
+the Fetch standard, refuse it before a request is made:
+
+```
+TypeError: Request with GET/HEAD method cannot have body.
+```
+
+That is the Fetch specification, not an implementation limit, so it cannot be configured away. It
+was met while exercising criterion 3 of section 22 with a Fetch client, which is why it is
+recorded here rather than guessed at: `curl --data-raw ''` reaches these routes because curl will
+frame a body on a `GET`; a Fetch client has no way to.
+
+So the two declared read-back operations are unreachable from the client stack most callers use,
+and **documenting the requirement is not a way out — there is nothing a Fetch client could be
+told to do.** The remaining choices are to accept an absent body where the request declared none,
+or to withdraw both operations from section 16 and let the callback be the only delivery path.
+
+## Q160 · security-finding · blocking: no
+
+**Raised at** the whole-version sweep of 1.0.0, 2026-09-28. Severity **LOW**, and the severity is
+about today's contents rather than the shape.
+<!-- spec: run-contract -->
+
+**`express.static` is mounted ahead of the signature filter on all three servers, so anything
+placed in `public/` is served to anyone, on every port.**
+
+**Measured, not read.** A file was written into `public/`, requested with no client id, no
+timestamp and no signature, and removed again:
+
+| request | answer |
+| :-- | :-- |
+| `GET http://127.0.0.1:8001/<file>` — the REST port | **`200`, with the file's contents** |
+| `GET http://127.0.0.1:3900/<file>` — the customer GraphQL port | **`200`, with the file's contents** |
+
+The mount carries no path prefix, so it answers at each server's root, outside `/v1`. The
+middleware list is registered app-wide before any renderer route is composed, and the
+authentication filter runs per resolved route — so it is not reached at all.
+
+`public/` today holds one placeholder file, which is why this is LOW: **nothing is disclosed
+now.** What exists is a standing unauthenticated route, on three ports, waiting for the first
+person who puts a file there — and nothing in the tree says it is there.
+
+**Spec breached:** §7 *"Authentication — Nothing is reachable without it: no public route, no
+health check, no guest allow-list."*
+
+- [ ] open — the recommendation is to remove `express.static` and its `staticPath` config from
+      all three engines. This product serves no static asset, so the mount has no user. See
+      [[Q163]] for the larger version of the same observation.
+
+
+## Q161 · security-finding · blocking: no
+
+**Raised at** the whole-version sweep of 1.0.0, 2026-09-28. Severity **LOW**.
+<!-- spec: run-contract -->
+
+**An interactive GraphQL console is served, unauthenticated, on any environment not named
+`production` — and this repository's deployment-shaped environment is named `live`.**
+
+This is the second exposure through the gate [[Q156]] already records. That question covers the
+raw error message; this one is the same predicate reached from a different place:
+`GraphqlServerBuilder.collectExpressRoutes` returns early **only** when `isProduction()`, and
+`isProduction()` is `NODE_ENV === 'production'`.
+
+**Measured:** `GET /graphiql-customer` on port 3900 answers **`200`** with no signature, and the
+same port answers `{"data":{"healthCheck":true}}` to an unsigned GraphQL POST — the latter being
+[[Q157]], re-confirmed live rather than by reading.
+
+**Why it is LOW and not higher.** All three servers bind `127.0.0.1`, and the deployment path is
+`pm2 --env production`, which lands on the safe side of the predicate. The finding is that the
+only thing closing it is an environment **name**, in a repository that also ships an environment
+called `live` and a CI lane that runs under it.
+
+- [ ] open — either gate these on something the deployment cannot get wrong, or remove the two
+      GraphQL engines entirely; see [[Q163]].
+
+
+## Q162 · security-finding · blocking: no
+
+**Raised at** the whole-version sweep of 1.0.0, 2026-09-28. Severity **LOW**, prospective.
+<!-- spec: retention -->
+
+**One log call in the repository writes a raw `error.message`. It is the last exception to the
+discipline that makes §22's fourth criterion hold structurally.**
+
+`JobScheduleRegistrationInspector#reportUnreadableRegistration()` logs
+`this.extractErrorMessage({ error })`. Every other `mentsuLogger` call site in the tree logs the
+error's **class name**; the one in `ProviderUploadedFilePurger` was brought into line earlier in
+this same session, which is what left this one visible.
+
+**It is deliberate, and the docblock says why:** the two failures it must tell apart are a Redis
+read that refused and this class's own five-second deadline, and *"a name would read `Error`
+either way, and an operator would learn nothing from it."* That reasoning is sound. The objection
+is not to the distinction but to how it is drawn — §22 asks for **reason codes**, and this
+borrows a library's wording to stand in for one.
+
+**No path by which content or a secret reaches this line exists today.** The payloads it reads are
+the three retention sweep registrations, which carry no run content, and ioredis does not place a
+password in an error message. This is recorded as the shape, not as a leak.
+
+**The fix the class already has the means for.** The deadline is raised by the class itself —
+`refuseUnansweredRead()` throws after `timersPromises.setTimeout(REGISTRATION_READ_DEADLINE_MILLISECOND)`
+— so the two cases are distinguishable **structurally**, without reading either message. Giving
+that raise a named error of its own would let this site log a class name like every sibling and
+keep the distinction the docblock is protecting.
+
+- [ ] open — the author decides whether the named error is worth a file, or whether the written
+      justification stands as the recorded exception. Either way the exception should be
+      deliberate and singular, which it now is.
+
+
+## Q163 · design-observation · blocking: no
+
+**Raised at** the whole-version sweep of 1.0.0, 2026-09-28.
+<!-- spec: run-contract -->
+
+**Two entire GraphQL servers are boilerplate this product does not use, and most of this sweep's
+security findings live only on them.**
+
+`server/index.js` starts a customer engine on 3900 and an admin engine on 5800. Between them they
+expose exactly one operation — `healthCheck` — and it is on the guest allow-list. **The whole of
+this product's API is the four REST routes on 8001.**
+
+What those two engines carry: wildcard CORS, a static mount ([[Q160]]), an unauthenticated
+GraphQL-multipart upload middleware, a WebSocket subscription transport with no connection-level
+authentication, the GraphiQL console ([[Q161]]) and the guest allow-list ([[Q157]]).
+
+`app/session/**` and the refresh-token cookie clerk are the same class of leftover: an apparatus
+no operation reaches.
+
+**One correction to the audit that produced this list, kept here so a later sweep does not raise
+it again.** The upload middleware was reported as buffering up to ten files of ten megabytes to
+the machine's temporary directory ahead of authentication. **Run, it does not.** An unsigned
+GraphQL-multipart POST carrying a 200 KB part was answered `200` with `Unknown type "Upload"`, and
+the count of `upload_*` entries in the temporary directory was **0 before and 0 after**. Neither
+schema declares an `Upload` scalar, so no resolver ever reads the stream and nothing is written to
+disk. The middleware is unnecessary surface, not a disk-consumption route.
+
+- [ ] open — removing the two engines would close five of this sweep's findings in one change,
+      and is the single highest-value item on this list. It is a deletion inside accepted
+      features, so it is the author's to schedule rather than this sweep's to make.
