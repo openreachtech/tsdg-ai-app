@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | **DRAFT** — not walked end to end. Chapter 7 holds four open issues, and **7.1 and 7.2 must be closed before a single real request can be served** |
+| **Status** | **DRAFT** — not walked end to end. **7.1 is closed.** Chapter 7 holds three open issues, of which **7.2 still blocks: no production client can be created, so no request can be signed** |
 | Target environment | production |
 | Target version | 1.0.0 |
 | Written | 2026-09-29 |
@@ -15,8 +15,8 @@ This document is for touching production **one line at a time**. Every step says
 the screen shows when it worked, and what to do when it did not. **Every command runs in Cloud
 Shell** unless a step says otherwise.
 
-**Read chapter 7 before chapter 1.** Two of its issues are code that does not exist yet, and Part I
-cannot be completed without them.
+**Read chapter 7 before chapter 1.** One of its issues is a provisioning path that does not exist
+yet, and Part I cannot be completed without it.
 
 ---
 
@@ -105,16 +105,16 @@ covers.
 
 ## Part I — First build (once only)
 
-### 1.1 Close the two blocking open issues first
+### 1.1 Close the blocking open issue first
 
-**Purpose.** Part I cannot be completed without them. 7.1 is a code change; 7.2 is a missing
-provisioning path.
+**Purpose.** Part I cannot be completed without it. 7.2 is a provisioning path that does not
+exist, and without it nothing can sign a request.
 
 **Preconditions.** None.
 
-**Command.** Read chapter 7, sections 7.1 and 7.2. Do not continue until both are done and merged.
+**Command.** Read chapter 7, section 7.2. Do not continue until it is done and merged.
 
-**Expected output.** `git log` on the backend shows the two changes, and `npm test` passes.
+**Expected output.** `git log` on the backend shows the change, and `npm test` passes.
 
 **On failure.** Not applicable — this is a reading step.
 
@@ -767,21 +767,30 @@ the same release.
 **This document is DRAFT until these are closed.** 7.1 and 7.2 block Part I; 7.3 and 7.4 are traps
 that would be discovered in production.
 
-### 7.1 The service cannot run on Cloud Run as it stands — blocking
+### 7.1 The service could not run on Cloud Run — **CLOSED, 2026-09-29**
 
-`server/index.js` binds `127.0.0.1` on fixed ports 8001, 3900 and 5800, and nothing in the
-repository reads `PORT`. Cloud Run requires listening on `0.0.0.0:$PORT` and exposes **one** port
-per service, so all three servers cannot share one.
+`server/index.js` bound `127.0.0.1` on fixed ports 8001, 3900 and 5800 and read no `PORT`, while
+Cloud Run requires `0.0.0.0:$PORT` and exposes one port per service. Done:
 
-What is needed, and it is small:
+- `server/index.js` reads `PORT`, defaulting to 8001, and binds `0.0.0.0`
+- **the customer and admin GraphQL engines are removed** (`Q163`) — 19 source files and 10 test
+  files. Between them they exposed one operation, `healthCheck`, on a guest allow-list §7 says
+  does not exist, and they carried the wildcard CORS, the unauthenticated static mount
+  (`Q160`), the upload middleware, the unauthenticated WebSocket transport and the GraphiQL
+  console (`Q161`). Removing them closed all of it and left one port to serve
+- a `Dockerfile` and a `.dockerignore` exist. The image writes the empty `.env` the framework
+  requires, and `.dockerignore` keeps `.env.development` — whose values are published in a
+  public repository — out of it
 
-- read `PORT` from the environment and bind `0.0.0.0` in `server/index.js`
-- **remove the customer and admin GraphQL engines** (`Q163`). Between them they expose one
-  operation, `healthCheck`, which is on a guest allow-list §7 says does not exist; the whole of this
-  product's API is the four REST routes. Removing them also closes `Q160`, `Q161` and two other
-  sweep findings at once, and leaves exactly one port to serve
-- add a `Dockerfile` — the repository has none. It must copy an **empty `.env`** into the image
-  (see 0.1) and default to `node server/index.js`, with the worker pool overriding the command
+**Verified by running, not by reading.** With `PORT=9123` the service answers `401` to an
+unsigned request, `ss` shows `LISTEN 0.0.0.0:9123`, and ports 3900 and 5800 refuse the
+connection. Suites after the change: **153 suites / 5192 tests** and **8 / 531**, all passing,
+lint clean.
+
+**Left deliberately undone.** Seven GraphQL packages and `express-rate-limit` are now referenced
+by no source file in this repository, but `@openreachtech/renchan`'s own barrel may still load
+them. Removing them from `package.json` is a separate change that needs that checked first.
+`pm2.config.cjs` also describes a process-manager deployment this target does not use.
 
 ### 7.2 There is no way to create a production API client — blocking
 
