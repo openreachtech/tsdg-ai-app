@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | **DRAFT** — not walked end to end. **7.1 is closed.** Chapter 7 holds three open issues, of which **7.2 still blocks: no production client can be created, so no request can be signed** |
+| **Status** | **DRAFT** — not walked end to end on Google Cloud. **7.1 and 7.2 are both closed**, so Part I has no blocking gap left. Chapter 7 holds two open issues, neither blocking |
 | Target environment | production |
 | Target version | 1.0.0 |
 | Written | 2026-09-29 |
@@ -15,8 +15,8 @@ This document is for touching production **one line at a time**. Every step says
 the screen shows when it worked, and what to do when it did not. **Every command runs in Cloud
 Shell** unless a step says otherwise.
 
-**Read chapter 7 before chapter 1.** One of its issues is a provisioning path that does not exist
-yet, and Part I cannot be completed without it.
+**Read chapter 7 before chapter 1.** Nothing there blocks the build any more, but two of its
+items change what you should set while you are setting everything else.
 
 ---
 
@@ -105,18 +105,18 @@ covers.
 
 ## Part I — First build (once only)
 
-### 1.1 Close the blocking open issue first
+### 1.1 Read chapter 7
 
-**Purpose.** Part I cannot be completed without it. 7.2 is a provisioning path that does not
-exist, and without it nothing can sign a request.
+**Purpose.** Nothing there blocks the build, but two items decide values you are about to set
+and are cheaper to apply now than to change afterwards.
 
 **Preconditions.** None.
 
-**Command.** Read chapter 7, section 7.2. Do not continue until it is done and merged.
+**Command.** Read chapter 7.
 
-**Expected output.** `git log` on the backend shows the change, and `npm test` passes.
+**Expected output.** Not applicable — this is a reading step.
 
-**On failure.** Not applicable — this is a reading step.
+**On failure.** Not applicable.
 
 **Rollback.** Not applicable.
 
@@ -249,8 +249,10 @@ Run environment variable set in the console.
 # the Cloud SQL password from 1.3
 printf '%s' '<the password>' | gcloud secrets create tsdg-database-password --data-file=-
 
-# 32 bytes, used to encrypt each client's signing secret at rest
-openssl rand -base64 32 | gcloud secrets create tsdg-client-secret-key --data-file=-
+# 32 bytes as 64 hex characters, used to encrypt each client's signing secret at rest.
+# It must be hex and exactly that length: ApiClientSecretCipher refuses anything else by
+# name, so a base64 value here fails at the first request rather than at this step.
+openssl rand -hex 32 | gcloud secrets create tsdg-client-secret-key --data-file=-
 
 # Memorystore's AUTH string, or an empty line when AUTH is off
 printf '%s' '' | gcloud secrets create tsdg-redis-password --data-file=-
@@ -509,13 +511,40 @@ instead registers a *second* schedule and orphans the first; `npm run schedulers
 **Purpose.** Nothing can call the service until a row exists in `api_clients` with an encrypted
 signing secret and a registered callback URL prefix.
 
-**Preconditions.** 7.2 — **there is no provisioning path yet.** This step cannot be run today.
+**Preconditions.** 1.11, 1.12, the Cloud SQL proxy from 1.11 still running, and the same
+exported environment — including `API_CLIENT_SECRET_ENCRYPTION_KEY`, which must be the value
+1.6 put in Secret Manager.
 
-**Expected output.** A row whose `client_key` the client sends as `x-ort-client-id`, whose secret
-they sign with, and whose `callback_url_prefix` their callback URL begins with. A callback to any
-other URL is refused with `unregistered-callback-url` and never sent.
+```bash
+export API_CLIENT_SECRET_ENCRYPTION_KEY='<the 64 hex characters from 1.6>'
 
-**On failure.** See 7.2.
+node scripts/registerApiClient.js '<the client's name>' '<their callback URL prefix>'
+```
+
+**Expected output.**
+
+```
+Registered.
+
+  name                 <the client's name>
+  callback URL prefix  https://api.example.com/callbacks/
+  client key           <48 hex characters>
+  secret               <43 characters>
+```
+
+**Capture the secret as it appears.** It is stored encrypted, the model's default scope does not
+select the column, and nothing in this repository prints one back. This output is the client's
+only copy; hand it over through something that is not this terminal's scrollback. A lost secret
+is replaced by registering a new client, never recovered.
+
+**The callback prefix is a control, not a label.** A run's terminal callback is posted only to a
+URL beginning with it; anything else is refused as `unregistered-callback-url` and never sent. A
+prefix wider than it needs to be is a wider place a result can be sent.
+
+**On failure.** The command refuses a prefix that is not an absolute `http(s)` URL ending in a
+slash, prints why, and **exits 1** — so a wrapper script can tell a refusal from a success. An
+`API_CLIENT_SECRET_ENCRYPTION_KEY` that is not 64 hex characters is refused by name at this
+step rather than at the first request.
 
 **Rollback.** Delete the row; that client can no longer call.
 
@@ -792,15 +821,25 @@ by no source file in this repository, but `@openreachtech/renchan`'s own barrel 
 them. Removing them from `package.json` is a separate change that needs that checked first.
 `pm2.config.cjs` also describes a process-manager deployment this target does not use.
 
-### 7.2 There is no way to create a production API client — blocking
+### 7.2 There was no way to create a production API client — **CLOSED, 2026-09-29**
 
-`api_clients` rows are created only by `sequelize/seeders/development/`, whose secrets are committed
-to a public repository. `sequelize/seeders/master/` has no equivalent, and `scripts/` holds no
-provisioning tool. **So a freshly built production cannot accept a single signed request.**
+`api_clients` rows were created only by `sequelize/seeders/development/`, whose secrets are
+committed to a public repository, so a freshly built production could not accept a single signed
+request. `scripts/registerApiClient.js` now does it, and 1.14 is the step that runs it.
 
-What is needed: a script that takes a client name, a callback URL prefix and a generated secret,
-encrypts the secret with `API_CLIENT_SECRET_ENCRYPTION_KEY` exactly as the development seeder does,
-inserts the row, and prints the client key and the plaintext secret **once**.
+It generates a 48-character key and a 43-character secret, encrypts the secret through the same
+`ApiClientSecretCipher` the request path decrypts with, writes the row active with no rotating
+secret, and prints both values once.
+
+**Verified end to end, not by reading.** A client registered by the command signed a request the
+service answered **`200`**; the same request signed with a different secret was answered
+**`401`**. The stored envelope decrypts back to the secret that was printed — which is the one
+property a mocked test would have hidden, and is asserted against the real database.
+
+**One defect was found by running it and is fixed.** A refusal printed its reason and then exited
+**0**, because `ProcessClerk#exit()` reads `exitCode` and the call named the field `code`, so the
+default of 0 applied. A pipeline reads the code and never the text, so the command's only failure
+mode was invisible. It exits 1 now, and two tests pin it.
 
 ### 7.3 Two traps in the existing scripts
 
