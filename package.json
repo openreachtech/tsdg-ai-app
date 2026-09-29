@@ -1,11 +1,15 @@
 {
-  "name": "TODO: fulfill here ❌️",
+  "name": "tsdg-ai-app",
   "version": "0.0.0",
   "private": true,
   "license": "Apache-2.0",
-  "description": "TODO: fulfill here",
+  "description": "Spec and Hora Kit for tsdg-ai-backend, the AI service called by Taisandaugia over REST.",
   "type": "module",
   "scripts": {
+    "test": "mentsu-testcase-cache",
+    "test:cold": "mentsu-testcase-cache --cold",
+    "test:status": "mentsu-testcase-cache --status",
+    "test:clear": "mentsu-testcase-cache --clear",
     "hora:init": "hora-core install && hora-skills-ort-core install && hora-skills-ort-renchan install && hora-skills-ort-furo install && hora-skills-ort-support install && node kit/scripts/equip-own-skills.mjs",
     "l": "npm run lint",
     "lint": "eslint .",
@@ -20,6 +24,7 @@
     "@openreachtech/hora-skills-ort-furo": "^0.3.0",
     "@openreachtech/hora-skills-ort-renchan": "^0.2.1",
     "@openreachtech/hora-skills-ort-support": "^0.4.0",
+    "@openreachtech/mentsu-testcase-cache": "^0.0.0",
     "eslint": "^9.39.5"
   }
 }

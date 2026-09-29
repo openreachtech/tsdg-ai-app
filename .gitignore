@@ -71,6 +71,13 @@ id_ed25519
 /.hora/hora-skills-ort-renchan.json
 /.hora/hora-skills-ort-support.json
 
+#### the test cache's records, written by mentsu-testcase-cache
+#
+# Machine-local: a record carries the node version and platform it was made on, so
+# another machine's key never matches it. The declaration at .hora-cache.json is
+# committed; what it produces is not.
+/.hora-cache/
+
 #### for Windows
 Thumbs.db
 Thumbs.db:encryptable

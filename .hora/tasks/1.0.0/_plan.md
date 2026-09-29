@@ -1,0 +1,31 @@
+# 1.0.0
+
+## Features
+
+ 1. [x] #run-contract             backend
+ 2. [x] #provider-layer           backend   depends: run-contract
+ 3. [x] #run-record               backend   depends: run-contract
+ 4. [x] #run-execution            backend   depends: run-record
+ 5. [x] #media-fetch              backend   depends: run-execution
+ 6. [x] #run-delivery             backend   depends: run-execution
+ 7. [x] #asset-media-extraction   backend   depends: run-delivery, provider-layer, media-fetch
+ 8. [x] #run-list                 backend   depends: run-delivery
+ 9. [x] #run-cancel               backend   depends: run-execution
+10. [x] #operator-cli             backend   depends: run-list
+11. [x] #retention                backend   depends: run-record, provider-layer, media-fetch
+
+## Acceptance
+
+- [x] Sweep the whole version, once every feature above is done
+      Version criteria: 6 (#version-acceptance-1-0-0), 0 resting on a not-accepted feature
+
+## Not accepted
+
+None. `Existing assets` declares no baseline permission, so no feature of this version
+is listed rather than specified.
+
+## Withdrawn
+
+- #run-progress   kicked in 1.0.0. Deferred rather than dropped: it is an "out of scope
+                  for now" entry naming its unblock condition and its seam. Nothing of it
+                  was implemented, so no removal task is owed
