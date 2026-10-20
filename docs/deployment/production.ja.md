@@ -2,10 +2,12 @@
 
 | | |
 |---|---|
-| **状態** | **DRAFT** — Google Cloud 上で通しで実行していない。**7.1 と 7.2 は両方とも解決済み**なので、Part I に着手を妨げるものは残っていない。第 7 章に未解決が 2 件あるが、いずれも進行を妨げない |
+| **状態** | **通しで実行済み。** 実際のプロジェクトに対して端から端まで実行した。その実行が生んだ訂正はすべて、巻末の正誤表ではなく各手順そのものに織り込んである。不自然に見える手順は、たいてい素直な書き方が失敗したからそう書かれている |
 | 対象環境 | production |
 | 対象バージョン | 1.0.0 |
+| イメージタグ | `1.0.0` が最初。`1.0.1` が Cloud SQL ソケットの修正、`1.0.2` がクライアントシークレットのローテーション（Part III）。製品バージョンは通して 1.0.0 である |
 | 作成日 | 2026-09-29 |
+| 改訂 | 2026-10-20、初回の本番実行の後 |
 | 実装対象 | `specs/1.0.0/spec.md` — §7（非機能）、§17（`provider-layer`）、§19（`retention`）、§22（バージョン受け入れ基準） |
 | ビルド種別 | **初回構築。** まだ何も稼働していないため、Part I は一度だけ、全手順を実行する |
 | 許容ダウンタイム | リリースごとに数分。運用者と合意済み |
@@ -26,7 +28,7 @@
 | 実行ワーカー | Cloud Run **ワーカープール** | 実行キューを消費する。ポートを持たないためサービスではない |
 | データベース | Cloud SQL for **MySQL 8** | `mariadb` ドライバで接続する。Cloud SQL コネクタ経由 |
 | キュー | **Memorystore for Redis**、VPC 内 | BullMQ。実行キュー、コールバックキュー、保持期間の 3 つのスケジュールを保持する |
-| モデル提供者 | **Gemini API、API キー方式** | `@google/genai`、キーは `GEMINI_API_KEY` から読む。Vertex AI ではない — 7.4 参照 |
+| モデル提供者 | **Vertex AI、ワーカー自身の ID で** | `@google/genai` を `vertexai: true` で使い、`VERTEX_AI_PROJECT_ID` と `VERTEX_AI_LOCATION` で孛先を決める。鍵はどこにも無い。`GEMINI_API_KEY` はこの 2 つが揃わないときだけドライバが読む退避路である — 1.16 参照 |
 | シークレット | **Secret Manager** | 環境変数として注入する |
 
 **プロセスが 2 つに分かれているのは意図的である。** バックエンドの `pm2.config.cjs` が理由を述べている。実行はモデルを呼び、ファイルを取得する。そのどちらも §7 が実行に許した 300 秒を要しうる。リクエストを開いたまま保持できる時間をはるかに超える。API は実行キーとともに `202` を返して投入し、ワーカーが消費する。両者は 1 つの Redis と 1 つのデータベースを読む。
@@ -47,7 +49,9 @@
 | `<SQL_INSTANCE>` | Cloud SQL インスタンス名 | `tsdg-db` |
 | `<SQL_CONNECTION>` | Cloud SQL 接続名、1.3 で取得 | `example-ai-prod:asia-northeast1:tsdg-db` |
 | `<REDIS_HOST>` | Memorystore のアドレス、1.4 で取得 | `10.12.0.3` |
-| `<VPC_CONNECTOR>` | サーバレス VPC コネクタ名 | `tsdg-connector` |
+| `<VPC_CONNECTOR>` | サーバレス VPC コネクタ名。API サービスが使う | `tsdg-connector` |
+| `<VPC_NETWORK>` | ワーカープールが直接参加する VPC ネットワーク、1.4 で取得 | `default` |
+| `<VPC_SUBNET>` | そのネットワーク内のサブネット | `default` |
 | `<TAG>` | デプロイするバージョンのタグ | `1.0.0` |
 | `<API_URL>` | API サービスの URL、1.9 で取得 | `https://tsdg-api-xxxxx.a.run.app` |
 | `<CLIENT_HOSTS>` | メディア取得を許可するホスト | `files.example.com,storage.example.com` |
@@ -57,7 +61,7 @@
 - プロジェクトに対する Cloud Shell：`gcloud config set project <PROJECT_ID>`。`gcloud`、`docker`、`git` は既に入っている
 - マイグレーションとスケジュール登録のための Cloud Shell 上の Node 24：`nvm install 24`（バックエンドの要件は `>=22.18.0`）
 - バックエンドリポジトリへの読み取り権限
-- 実際の提供者を有効化する場合は Gemini API キー。**既定のインストールでは不要** — 1.13 参照
+- **モデル提供者のために手元に用意するものは無い。** ワーカーは自身のサービスアカウントとして Vertex AI を呼ぶため、この手順に持ち込む鍵も、保管する鍵も、後で失効させる鍵も存在しない — 1.16 参照
 
 ### 0.4 必要な権限
 
@@ -115,10 +119,13 @@ gcloud services enable \
   redis.googleapis.com \
   secretmanager.googleapis.com \
   vpcaccess.googleapis.com \
-  cloudbuild.googleapis.com
+  cloudbuild.googleapis.com \
+  aiplatform.googleapis.com
 ```
 
 **期待される出力。** `Operation "operations/..." finished successfully.` 既に有効な API を有効化しても何も出ず、それはエラーではない。
+
+**モデル呼び出しが必要とするのは `aiplatform.googleapis.com` である**（0.1）。無効のままでもビルドもデプロイも通る。最初の実際の実行が提供者呼び出しで失敗する — ここから遠く離れた場所で、API の欠落ではなく実行の失敗として報告される。
 
 **失敗したとき。** `PERMISSION_DENIED` は 0.4 のロールを持っていないことを意味する。課金が無効だと `FAILED_PRECONDITION` になる。
 
@@ -134,7 +141,8 @@ gcloud services enable \
 
 ```bash
 gcloud sql instances create <SQL_INSTANCE> \
-  --database-version=MYSQL_8_0 \
+  --database-version=MYSQL_8_4 \
+  --edition=ENTERPRISE \
   --tier=db-custom-2-7680 \
   --region=<REGION> \
   --storage-auto-increase \
@@ -142,16 +150,22 @@ gcloud sql instances create <SQL_INSTANCE> \
 
 gcloud sql databases create tsdg_ai --instance=<SQL_INSTANCE>
 
+# コマンドの中ではなく変数に生成する。コマンドが戻った後でも読めるように
+DATABASE_PASSWORD="$(openssl rand -base64 32 | tr -d '\n')"
+printf '%s\n' "$DATABASE_PASSWORD"
+
 gcloud sql users create tsdg_app \
   --instance=<SQL_INSTANCE> \
-  --password="$(openssl rand -base64 32)"
+  --password="$DATABASE_PASSWORD"
 
 gcloud sql instances describe <SQL_INSTANCE> --format='value(connectionName)'
 ```
 
 **期待される出力。** 最後のコマンドが `<PROJECT_ID>:<REGION>:<SQL_INSTANCE>` を表示する。**これを 0.2 の `<SQL_CONNECTION>` に書き込むこと。** 作成には 10〜15 分かかり、`Creating Cloud SQL instance...done.` と表示される。
 
-**パスワードを控えること。** 3 番目のコマンドは有用な出力を返さない。実行しながら生成されたパスワードを控えるか、既に手元にある値を設定すること。1.6 で Secret Manager に入れる。
+**`--edition` を明記するのは、既定値を前提にできないからである。** `db-custom-*` 系のティアは Enterprise エディションのもので、このフラグ無しに作成すると Enterprise Plus に配置され得る。そこはそのティアを拒否し、コマンドは失敗する。一行でこの疑問が消える。
+
+**パスワードはコマンドの中ではなく変数に生成する。** `--password="$(openssl rand -base64 32)"` と書くと、その値はコマンド置換の中にしか存在せず、コマンドが戻った瞬間に失われる — そして 1.6 はそれを必要とする。`tr -d '\n'` も飾りではない。1.6 が、同じ文字の欠落がクラッシュループを招いた場所である。
 
 **失敗したとき。** 削除済みの名前は 1 週間再利用できない。別の名前を選ぶこと。
 
@@ -209,7 +223,7 @@ gcloud artifacts repositories create <AR_REPO> \
 
 ### 1.6 シークレットを Secret Manager に置く
 
-**目的。** 次の 4 つの値は、コマンドラインにも、リポジトリ内のファイルにも、コンソールで設定した Cloud Run の環境変数にも、決して現れてはならない。
+**目的。** 次の 2 つの値は、コマンドラインにも、リポジトリ内のファイルにも、コンソールで設定した Cloud Run の環境変数にも、決して現れてはならない。
 
 **前提。** 1.2 と、1.3 の Cloud SQL パスワード。
 
@@ -220,16 +234,26 @@ printf '%s' '<the password>' | gcloud secrets create tsdg-database-password --da
 # 32 バイトを 64 桁の 16 進数で。各クライアントの署名シークレットを保存時に暗号化する鍵。
 # 16 進数かつこの長さでなければならない。ApiClientSecretCipher が名指しで拒否するため、
 # ここに base64 の値を入れると、この手順ではなく最初のリクエストで失敗する。
-openssl rand -hex 32 | gcloud secrets create tsdg-client-secret-key --data-file=-
+#
+# この行が奇妙に見える理由は `tr -d '\n'` に尽きる。そしてこれは任意ではない。
+openssl rand -hex 32 | tr -d '\n' | gcloud secrets create tsdg-client-secret-key --data-file=-
 
-# Memorystore の AUTH 文字列。AUTH が無効なら空行
-printf '%s' '' | gcloud secrets create tsdg-redis-password --data-file=-
-
-# Gemini API キー。空で作成する。既定のインストールはスタブが応答し、ここを読まない
-printf '%s' '' | gcloud secrets create tsdg-gemini-api-key --data-file=-
+# 何かがマウントする前に読み戻す。64。65 ではない
+gcloud secrets versions access latest --secret=tsdg-client-secret-key | wc -c
 ```
 
-**期待される出力。** `Created version [1] of the secret [...]` が 4 回。
+**期待される出力。** `Created version [1] of the secret [...]` が 2 回、その後 `64`。
+
+**`tsdg-client-secret-key` の末尾の改行 1 文字がワーカーをクラッシュループさせる。経路はこうである。** `openssl rand -hex 32` は出力の末尾に改行を付ける。Secret Manager は渡されたバイトをそのまま保存する。Cloud Run は保存されたとおりに環境変数へ渡す。結果、プロセスは 64 文字を要求する場所で 65 文字を読む。`ENCRYPTION_KEY_PATTERN` は `/^[0-9a-f]{64}$/iu` — アンカー付きで `m` フラグは無く、JavaScript の `$` はシェルの比較のように末尾の改行を見逪してはくれない。コンテナは起動時に `API_CLIENT_SECRET_ENCRYPTION_KEY must be 64 hex characters, the 32 bytes AES-256-GCM takes` で終了し、再試行のたびに同じことを繰り返す。その間、隣の API サービスは健全に見える。**これは本番の実行で起きた**。上の `wc -c` の行が助言でなく手順の一部であるのはそのためである。
+
+**この手順書の最初の稿が 4 つ作っていたところを、2 つにしてある。** 落とした 2 つはどちらも空のプレースホルダであり、空のシークレットは存在しないシークレットより悪い — マウントするもの、権限を与えるもの、そして忘れるものが 1 つ増えるだけである：
+
+| 落としたもの | 理由 |
+|---|---|
+| `tsdg-redis-password` | ここの Memorystore は AUTH 無効で動き、`RedisConnection.generatePassword()` は変数が無ければ `null` を返す。「AUTH を送らない」は既に起きていることであり、空のシークレットをマウントしても読み取りが 1 つ増えるだけである |
+| `tsdg-gemini-api-key` | ワーカーは自身として Vertex AI 経由で Gemini に到達する（0.1、1.16）ので、鍵は決して読まれない。ここで作って後から中身を入れたものは、何も参照しない生きた資格情報である — まさに、誰も失効を思い出さない種類のものである |
+
+**鍵への退避が必要になったときは**、その時点でシークレットを作り、その時点でマウントすればよい。ドライバは Vertex を優先し、`VERTEX_AI_PROJECT_ID` と `VERTEX_AI_LOCATION` が両方揃わないときに限って鍵を読む。
 
 **`tsdg-client-secret-key` は、全クライアントのシークレットを再暗号化せずに変更できない。** 一度生成したら、軽々しくローテーションしないこと — 7.3 参照。
 
@@ -256,9 +280,16 @@ for ROLE in roles/cloudsql.client roles/secretmanager.secretAccessor; do
       --role="$ROLE" >/dev/null
   done
 done
+
+# モデルを呼ぶのはワーカーだけで、それは自身として呼ぶ
+gcloud projects add-iam-policy-binding <PROJECT_ID> \
+  --member="serviceAccount:tsdg-worker@<PROJECT_ID>.iam.gserviceaccount.com" \
+  --role="roles/aiplatform.user" >/dev/null
 ```
 
 **期待される出力。** `Created service account [...]` が 2 行、その後ループは無言で走る。
+
+**API キーの代わりになるのが、ワーカーだけに与えた `roles/aiplatform.user` である。** これが提供者の資格情報のすべてである。ここで付与されたが最後で、書き留められることも、保管されることも、ローテーションされることも無い。API サービスには与えない。API サービスはモデルを呼ばないからである。
 
 **失敗したとき。** バインディングでの `PERMISSION_DENIED` は `roles/resourcemanager.projectIamAdmin` を持っていないことを意味する。
 
@@ -295,32 +326,39 @@ gcloud builds submit \
 **前提。** 1.3、1.4、1.6、1.7、1.8。
 
 ```bash
-gcloud run deploy tsdg-api \
-  --image=<REGION>-docker.pkg.dev/<PROJECT_ID>/<AR_REPO>/tsdg-ai-backend:<TAG> \
-  --region=<REGION> \
-  --service-account=tsdg-api@<PROJECT_ID>.iam.gserviceaccount.com \
-  --add-cloudsql-instances=<SQL_CONNECTION> \
-  --vpc-connector=<VPC_CONNECTOR> \
-  --no-allow-unauthenticated \
-  --set-env-vars=NODE_ENV=production \
-  --set-env-vars=DATABASE_NAME=tsdg_ai \
-  --set-env-vars=DATABASE_USERNAME=tsdg_app \
-  --set-env-vars=DATABASE_DIALECT=mariadb \
-  --set-env-vars=DATABASE_HOST=/cloudsql/<SQL_CONNECTION> \
-  --set-env-vars=DATABASE_PORT=3306 \
-  --set-env-vars=REDIS_HOST=<REDIS_HOST> \
-  --set-env-vars=REDIS_PORT=6379 \
-  --set-env-vars=REDIS_TLS= \
-  --set-env-vars=MEDIA_FETCH_ALLOWED_HOSTS=<CLIENT_HOSTS> \
-  --set-secrets=DATABASE_PASSWORD=tsdg-database-password:latest \
-  --set-secrets=API_CLIENT_SECRET_ENCRYPTION_KEY=tsdg-client-secret-key:latest \
-  --set-secrets=REDIS_PASSWORD=tsdg-redis-password:latest \
-  --set-secrets=GEMINI_API_KEY=tsdg-gemini-api-key:latest
+# すべての値を 1 つのファイルに。行継続が輸送中に失われようがないように
+cat > ~/api-env.yaml <<'YAML'
+NODE_ENV: production
+DATABASE_NAME: tsdg_ai
+DATABASE_USERNAME: tsdg_app
+DATABASE_DIALECT: mariadb
+DATABASE_HOST: /cloudsql/<SQL_CONNECTION>
+DATABASE_PORT: '3306'
+REDIS_HOST: <REDIS_HOST>
+REDIS_PORT: '6379'
+MEDIA_FETCH_ALLOWED_HOSTS: <CLIENT_HOSTS>
+VERTEX_AI_PROJECT_ID: <PROJECT_ID>
+VERTEX_AI_LOCATION: <REGION>
+YAML
+
+# 1 行で。行継続を使わない
+gcloud run deploy tsdg-api --image=<REGION>-docker.pkg.dev/<PROJECT_ID>/<AR_REPO>/tsdg-ai-backend:<TAG> --region=<REGION> --service-account=tsdg-api@<PROJECT_ID>.iam.gserviceaccount.com --set-cloudsql-instances=<SQL_CONNECTION> --vpc-connector=<VPC_CONNECTOR> --no-allow-unauthenticated --env-vars-file=$HOME/api-env.yaml --set-secrets=DATABASE_PASSWORD=tsdg-database-password:latest,API_CLIENT_SECRET_ENCRYPTION_KEY=tsdg-client-secret-key:latest
 
 gcloud run services describe tsdg-api --region=<REGION> --format='value(status.url)'
+
+# リビジョンが実際に持っている数を数える。11 であって 6 ではない
+gcloud run services describe tsdg-api --region=<REGION> --format='value(spec.template.spec.containers[0].env[].name)' | tr ';' '\n' | wc -l
 ```
 
 **期待される出力。** `Service [tsdg-api] revision [tsdg-api-00001-abc] has been deployed and is serving 100 percent of traffic.` 最後のコマンドが URL を表示する。**これを 0.2 の `<API_URL>` に書き込むこと。**
+
+**環境変数をファイルにし、デプロイを 1 行にするのは、素直な書き方が何をするかのためである。** `--set-env-vars` を十数個バックスラッシュで繋いだブロックを貼ると、貼り付けテキストがそうであるようにバックスラッシュが 1 つ失われる。そしてその欠落は静かである：シェルは壊れた行をコマンドの終わりと受け取り、それ以降はすべて落ち、デプロイは**成功し**、リビジョンは 11 書いたところを 6 だけ持って立ち上がる。本番の実行で起きたのはこれで、症状はこの手順でのエラーでなく、起動しないワーカーであった。ファイルは行を失わないし、`--env-vars-file` は集合をマージではなく丸こと置き換える。上の数える行が、ファイルの言ったものがリビジョンに届いたかを告げる。
+
+**YAML 内の数値はクォートする。** `DATABASE_PORT: 3306` は YAML パーサにとって整数であり、このフラグは文字列を要求する。`'3306'` は文字列である。Redis のポートも同じ。
+
+**`REDIS_TLS` と `REDIS_PASSWORD` は意図して無い。** Redis は VPC 内にあり AUTH は無効で、どちらの読み手も、変数が無いことを欠落でなく決定として扱う — パスワードは `null`、輸送は TLS なし。`REDIS_TLS=` と空値を置くのは同じことを曙昧に言っているだけであり、コンマ区切りの `--set-env-vars` 列の中の空値はそれ自体が別の罠である。
+
+**`--add-` ではなく `--set-cloudsql-instances` を使う。** `--add-` は追加するので、2 度目のデプロイで同じインスタンスが 2 回並ぶ。無害であり、その後のあらゆる `describe` に永続的に残る雑音でもある。
 
 **`MEDIA_FETCH_ALLOWED_HOSTS` を空のままにすると、あらゆるメディア URL が拒否され**、すべての実行が `MEDIA_UNREADABLE` で `failed` となり、モデル呼び出しは 0 回になる。それは許可リストが機能している証拠であって欠陥ではない — が、空の値は「何一つ成功しない」を静かに意味する。スモークチェックの前に設定すること。
 
@@ -337,23 +375,26 @@ gcloud run services describe tsdg-api --region=<REGION> --format='value(status.u
 **前提。** 1.9。
 
 ```bash
-gcloud beta run worker-pools deploy tsdg-worker \
-  --image=<REGION>-docker.pkg.dev/<PROJECT_ID>/<AR_REPO>/tsdg-ai-backend:<TAG> \
-  --region=<REGION> \
-  --service-account=tsdg-worker@<PROJECT_ID>.iam.gserviceaccount.com \
-  --add-cloudsql-instances=<SQL_CONNECTION> \
-  --vpc-connector=<VPC_CONNECTOR> \
-  --command=node --args=scripts/startJobDaemon.js \
-  --min-instances=1 \
-  --set-env-vars=NODE_ENV=production \
-  ... # 1.9 と同じ環境変数とシークレット
+# 1.9 と同じ 11 つの値。サービスとワーカープールは別々に設定されるので、
+# 共有するのではなくもう一度渡す
+cp ~/api-env.yaml ~/worker-env.yaml
+
+# 1 行で。行継続を使わない
+gcloud beta run worker-pools deploy tsdg-worker --image=<REGION>-docker.pkg.dev/<PROJECT_ID>/<AR_REPO>/tsdg-ai-backend:<TAG> --region=<REGION> --service-account=tsdg-worker@<PROJECT_ID>.iam.gserviceaccount.com --set-cloudsql-instances=<SQL_CONNECTION> --network=<VPC_NETWORK> --subnet=<VPC_SUBNET> --vpc-egress=private-ranges-only --command=node --args=scripts/startJobDaemon.js --instances=1 --env-vars-file=$HOME/worker-env.yaml --set-secrets=DATABASE_PASSWORD=tsdg-database-password:latest,API_CLIENT_SECRET_ENCRYPTION_KEY=tsdg-client-secret-key:latest
 ```
 
 **期待される出力。** `Worker pool [tsdg-worker] has been deployed.`
 
-**`--min-instances=1` は任意ではない。** ゼロにスケールしたワーカープールはキューを消費しないため、`202` で受理された実行は、何かがスケールアップするまで Redis に留まり続ける。
+**ワーカープールはサービスが取るフラグを取らない。** `worker-pools deploy` は `--vpc-connector` と `--min-instances` を**その場で拒否する**。VPC にはネットワークとサブネットで直接参加し、インスタンス数のフラグ名も異なる。1.9 のコマンドを写して名詞だけ変えると、2 度失敗してから通る：
 
-**失敗したとき。** `worker-pools` を指定した同じログコマンドで確認する。
+| サービスが取る | ワーカープールが取る |
+|---|---|
+| `--vpc-connector=<VPC_CONNECTOR>` | `--network=<VPC_NETWORK> --subnet=<VPC_SUBNET> --vpc-egress=private-ranges-only` |
+| `--min-instances=1` | `--instances=1` |
+
+**`--instances=1` は任意ではない。** ゼロにスケールしたワーカープールはキューを消費しないため、`202` で受理された実行は、何かがスケールアップするまで Redis に留まり続ける。
+
+**失敗したとき。** `worker-pools` を指定した同じログコマンドで確認する。隣の API サービスが平常に応答しているのに、プールだけが数秒で起動と死を繰り返す場合は、1.6 の末尾の改行である — 他を見る前に、鍵の名前が出ているログを読むこと。
 
 **巻き戻し。** ワーカープールを削除する。投入済みの実行は Redis に残り、復帰時に再開する。
 
@@ -382,6 +423,10 @@ export DATABASE_NAME=tsdg_ai DATABASE_USERNAME=tsdg_app
 export DATABASE_PASSWORD='<the password from 1.3>'
 export DATABASE_DIALECT=mariadb
 touch .env   # NODE_ENV=production では renchan-env がこれを要求する
+
+# ここでは 127.0.0.1 がホストで、あちらでは /cloudsql/... がソケットである。
+# 1 つの設定が両方を兼ねる：DatabaseDialectOptionsBuilder は "/" で始まる値を
+# ソケットパスとし、それ以外をホストとして扱う
 
 npx sequelize-cli db:migrate
 ```
@@ -534,7 +579,7 @@ GROUP BY m.name;
 
 新規インストールは**スタブ**に応答する。決定論的な固定値、鍵の読み取り無し、外向き通信無し。それが出荷時の既定であり — §17 は分岐ではなくデータとしてそれを表現している — 提供者の有効化は**行 1 つ**の変更である。
 
-**前提。** 1.15 が通過していること、`tsdg-gemini-api-key` が実際の鍵を保持していること。
+**前提。** 1.15 が通過していること、`aiplatform.googleapis.com` が有効であること（1.2）、ワーカーが `roles/aiplatform.user` を持っていること（1.7）、そしてワーカーの環境に `VERTEX_AI_PROJECT_ID` と `VERTEX_AI_LOCATION` があること（1.10）。
 
 **切り替えはこの結び付けの行であり、他のどこでもない。**
 
@@ -551,15 +596,11 @@ WHERE ai_agent_id = (SELECT id FROM ai_agents WHERE name = 'asset-media-extracti
 
 **`ai_models.is_default` は切り替えではない。** それは、結び付けを持たないエージェントのためにモデルを選ぶ将来のバージョンに向けて保持されている列である。**今日これを設定しても何も変わらず**、これを設定して終えたデプロイは、エラーも警告も、何かが無視されたという痕跡も無いまま、スタブの応答を受け取り続ける。これは推測ではなく計測された事実である — そのように構成した実行は、3 回のモデル呼び出しを伴って `succeeded` で返り、応答したのはスタブだった。
 
-**その後、ワーカーを再起動して行を読ませ、リクエストを 1 本流すこと。**
+**このためにデプロイするものは無く、再起動するものも無い。** ワーカーは自身として認証するので追加する鍵がない。そして `AiAgentModelBindingFinder` は、エージェントと結び付いたモデルとドライバを**実行ごとに** 1 回の `findOne` で読み、実行を越えてキャッシュを持たない。したがって上の `UPDATE` は次のリクエストから有効になる — この手順の末尾の巻き戻しが次のリクエストから有効になるのも、どちらの向きにもリビジョンが不要なのも、同じ理由である。
 
-```bash
-gcloud secrets versions add tsdg-gemini-api-key --data-file=-   # 鍵を貼り付けて Ctrl-D
-gcloud beta run worker-pools update tsdg-worker --region=<REGION> \
-  --update-secrets=GEMINI_API_KEY=tsdg-gemini-api-key:latest
-```
+**その上でリクエストを 1 本流し**（1.15 の手順 2）、トークンの行を読む。
 
-**期待される出力 — そしてこれだけが証明になる。** 1.15 の手順 2 を繰り返し、次を実行する：
+**期待される出力 — そしてこれだけが証明になる。**
 
 ```sql
 SELECT m.name, c.input_token_count, c.output_token_count
@@ -569,7 +610,7 @@ ORDER BY c.id DESC LIMIT 5;
 
 最新の行は `gemini-2-5-flash` でなければならない。**`stub` と出るなら切り替えは効いていない** — そして稼働中のサービスは何も教えてくれない。スタブの応答も成功した応答だからである。
 
-**失敗したとき。** 結び付けが指すモデルの提供者にドライバが無い場合、あるいはドライバに鍵が無い場合、実行は応答せず拒否する。したがってここでの `failed` は正直な結果であり、`stub` が応答した `succeeded` のほうが危険である。
+**失敗したとき。** 結び付けが指すモデルの提供者にドライバが無い場合、実行は応答せず拒否する。したがってここでの `failed` は正直な結果であり、`stub` が応答した `succeeded` のほうが危険である。`aiplatform` からの `PERMISSION_DENIED` は 1.7 の欠けた半分を直接名指す。`VERTEX_AI_*` の片方だけを設定した構成は鍵の経路に退避し、鍵が無いことを理由に拒否する。それは提供者側の問題のように読めるが、そうではない。
 
 **巻き戻し。** 結び付けを `stub` の行に戻す。次の実行から有効になる。
 
@@ -686,9 +727,49 @@ gcloud beta run worker-pools update tsdg-worker --region=<REGION> \
 
 ---
 
+## Part III — クライアントの署名シークレットをローテーションする
+
+**イメージ `1.0.2` 以降。** シークレットを変えなければならないクライアント — 漏洩したか、規程がそう言うか — に、新しい登録を与える必要はない。数時間から数日隔てて 2 つのコマンドを実行する。その間、古いシークレットも動き続ける。
+
+**前提。** 1.11 の Cloud SQL プロキシと export 済みの環境。1.14 と同様に `API_CLIENT_SECRET_ENCRYPTION_KEY` を含む。
+
+### 3.1 クライアントに新しいシークレットを渡す
+
+```bash
+node scripts/rotateApiClientSecret.js '<the client's name>'
+```
+
+**期待される出力。** `rotated`。新しいシークレットが一度だけ表示される。古いシークレットはそのクライアントの「以前の」枠に移り、検証を続ける。この瞬間から、コールバックの署名に使われるのは新しい方である。
+
+**新しいシークレットは、まずクライアントのコールバック検証側に、次にリクエスト署名側に渡すこと。** ここで噂むのはこの非対称性だけである。到着するリクエストは 2 つのシークレットのいずれでも検証されるので、クライアントは必要な間だけ古い方で署名を続けてよい。**外向きのコールバックは新しい方だけで署名される。** コールバック検証が古いシークレットしか持たないクライアントは、この窓の間に送られたコールバックをすべて `401` で跜ねる。それぞれが約 1 時間にわたって 7 回再試行され、その後破棄される。ポーリングでは結果が返るので、失われるのは実行ではなく通知である — が失われることに違いはなく、両側の順序を正しくするだけで避けられる。
+
+**失敗したとき。** `rotation-already-under-way`（終了コード 1）は、前回のローテーションが未引退のままだという意味である。先に 3.2 を実行すること。`client-not-found`（終了コード 1）は名前の誤りである — クライアントキーでなく `name` を渡す。
+
+**巻き戻し。** 無し。これは意図したことである：古いシークレットはまだ受け入れられているので、元に戻すものがない。新しいシークレットは再表示できない — 失ったクライアントはもう一度ローテーションする。
+
+**サービスを中断するか。** しない。
+
+### 3.2 クライアントの展開後に、古いシークレットを引退する
+
+```bash
+node scripts/retireApiClientPreviousSecret.js '<the client's name>'
+```
+
+**期待される出力。** `retired`。ここから先は新しいシークレットだけが検証される。
+
+**クライアントが新しいシークレットで署名していると確認するまで、これを実行しないこと。** これが窓を閉じる手順であり、早く実行することは、クライアント側から見れば、サービスが正当なリクエストを跜ねているのと区別がつかない。
+
+**失敗したとき。** `nothing-to-retire` は**終了コード 0** である — 枠が既に空だったということで、それは 2 度目の実行がそう見える姿であり、エラーではない。
+
+**巻き戻し。** 無し。古いシークレットは行から消えている。まだそれを持っているクライアントはもう一度ローテーションする。
+
+**サービスを中断するか。** 新しいシークレットを一度も展開しなかったクライアントに対してのみ。この手順はそれが済んでいることを前提にしている。
+
+---
+
 ## Chapter 7 — 未解決事項
 
-**これらが解決するまで、この文書は DRAFT である。** 7.1 と 7.2 は構築を妨げていたが、いずれも解決済みである。7.3 と 7.4 は、本番で発見されることになる罠である。
+**7.1 と 7.2 は解決済みであり、この文書はもう DRAFT ではない — 端から端まで通して実行された。** 残るのは 7.3 のスクリプトの罠 2 件と 7.4 の運用上の欠落である。いずれも構築を妨げず、7.4 の 4 件のうち 1 件は、ドライバが Vertex AI の経路を得たことで自ら解決した。
 
 ### 7.1 サービスが Cloud Run で動かなかった — **解決済み、2026-09-29**
 
@@ -715,14 +796,14 @@ gcloud beta run worker-pools update tsdg-worker --region=<REGION> \
 ### 7.3 既存スクリプトに潜む 2 つの罠
 
 - **`npm run db:seed:master` は `master` ではなく `dev-master` を投入する。** 名前が言うことと `--seeders-path` が言うことが食い違っている。1.12 はパスを明示することで回避しているが、回避が不要になるようスクリプトを直すべきである。
-- **`API_CLIENT_SECRET_ENCRYPTION_KEY` は値の差し替えではローテーションできない。** 保存済みのクライアントシークレットはすべてこの鍵で暗号化されているため、新しい値は一斉にすべてを復号不能にする。ローテーションとは全行の再暗号化であり、それを行う道具は今日存在しない。
+- **`API_CLIENT_SECRET_ENCRYPTION_KEY` は値の差し替えではローテーションできない。** 保存済みのクライアントシークレットはすべてこの鍵で暗号化されているため、新しい値は一斉にすべてを復号不能にする。ローテーションとは全行の再暗号化であり、それを行う道具は今日存在しない。**クライアント自身の署名シークレットは別の話であり、こちらはローテーションできる** — 1.0.2 以降、Part III。
 
 ### 7.4 このデプロイ形態が生む運用上の欠落
 
 - **ログファイルは残らない。** `MentsuLogger` は作業ディレクトリの `logs/` に書き、Cloud Run ではそのファイルシステムはインスタンスごとで破棄される。したがって §22 のログ規約は、誰も読めないファイルを生み出す。ロガーは stdout に書き、Cloud Logging に拾わせるべきである。関連して、ロガーは `NODE_ENV=production` の下でのみ書く。このデプロイはそれを設定するので、本番はそれらの行が存在する唯一の環境である（`Q149`）。
 - **すべての SQL 文が Cloud Logging に流れる。** `sequelize/config.cjs` が `logging: false` を設定しているのは `development` だけなので、`production` は Sequelize の既定である `console.log` を取る（`Q154`）。Cloud Run では費用と雑音であり、`logging: false` にすべきである。
 - **SQL 接続に TLS の選択肢が無い**（`Q24`）。コネクタの unix ソケット経由で Cloud SQL に到達すればこの露出は避けられる。1.9 がホストとポートではなく `/cloudsql/<SQL_CONNECTION>` を使うのはそのためである。`DATABASE_HOST` を公開 IP に向けないこと。
-- **提供者への到達はサービスアカウントではなく API キーである。** ワーカー自身の ID を使う Vertex AI なら、Secret Manager から鍵そのものを無くせる。それはこのデプロイではなくドライバへの変更である。
+- **提供者への到達は API キーではなくサービスアカウントである — 解決済み。** ドライバは Vertex AI の経路（`GeminiApiClient.createWithVertexAi()`）を得、ワーカーは `roles/aiplatform.user` の下で自身の ID として呼ぶ。Secret Manager にも他のどこにも鍵は存在しない。`VERTEX_AI_PROJECT_ID` と `VERTEX_AI_LOCATION` が両方揃わないときに限って鍵が退避路として読まれるので、退避路は構成せずに溏されている。
 
 ---
 
@@ -749,7 +830,13 @@ gcloud run services describe tsdg-api --region=<REGION> \
 gcloud beta run worker-pools describe tsdg-worker --region=<REGION> \
   --format='value(status.conditions[0].message)'
 redis-cli -h <REDIS_HOST> --scan --pattern 'bull:*:meta'
+
+# ワーカー自身のログ。範囲か順序かのどちらかを指定する。両方は指定しない
+gcloud logging read 'resource.type="cloud_run_worker_pool" AND resource.labels.worker_pool_name="tsdg-worker"' \
+  --freshness=1h --limit=50
 ```
+
+**`--order=asc` は `--freshness` を無効にし、そのことをどこにも告げない。** この組み合わせはプロジェクトが持つ最も古い行を返す。クラッシュループ中にこれを見ると、最初から壊れたままのサービスにそのまま見える。`--order` を落として新しい順に読むか、`--limit` を広げること。
 
 ### 9.2 照会する価値のある 4 つの問い
 

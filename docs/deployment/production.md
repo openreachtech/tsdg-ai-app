@@ -2,10 +2,12 @@
 
 | | |
 |---|---|
-| **Status** | **DRAFT** — not walked end to end on Google Cloud. **7.1 and 7.2 are both closed**, so Part I has no blocking gap left. Chapter 7 holds two open issues, neither blocking |
+| **Status** | **WALKED END TO END** against a live project. Every correction that run produced is folded into the steps below rather than appended as errata, so a step that reads oddly usually reads that way because the obvious form of it failed |
 | Target environment | production |
 | Target version | 1.0.0 |
+| Image tags | `1.0.0` built first, `1.0.1` carried the Cloud SQL socket fix, `1.0.2` adds client-secret rotation (Part III). The product version is 1.0.0 throughout |
 | Written | 2026-09-29 |
+| Revised | 2026-10-20, after the first live run |
 | What it implements | `specs/1.0.0/spec.md` — §7 (non-functional), §17 (`provider-layer`), §19 (`retention`), §22 (version acceptance criteria) |
 | Build kind | **First build.** Nothing is serving yet, so Part I runs once and in full |
 | End state | **A real provider answering.** The stub is an intermediate state of the build, held for the length of step 1.15 only. Part I is not finished until 1.16 shows `gemini-2-5-flash` in `ai_model_calls` |
@@ -30,7 +32,7 @@ items change what you should set while you are setting everything else.
 | Run worker | Cloud Run **worker pool** | Consumes the run queue. Listens on no port, so it is not a service |
 | Database | Cloud SQL for **MySQL 8** | The `mariadb` dialect driver speaks to it. Reached over the Cloud SQL connector |
 | Queue | **Memorystore for Redis**, inside the VPC | BullMQ. Holds the run queue, the callback queue and the three retention schedules |
-| Model provider | **Gemini API, by API key** | `@google/genai`, key read from `GEMINI_API_KEY`. Not Vertex AI — see 7.4 |
+| Model provider | **Vertex AI, as the worker itself** | `@google/genai` with `vertexai: true`, addressed by `VERTEX_AI_PROJECT_ID` and `VERTEX_AI_LOCATION`. There is no key anywhere. `GEMINI_API_KEY` is a fallback the driver takes only when those two are not both set — see 1.16 |
 | Secrets | **Secret Manager** | Injected as environment variables |
 
 **Two processes, and the split is deliberate.** `pm2.config.cjs` in the backend explains it: a run
@@ -60,7 +62,9 @@ here.
 | `<SQL_INSTANCE>` | Cloud SQL instance name | `tsdg-db` |
 | `<SQL_CONNECTION>` | Cloud SQL connection name, from 1.3 | `example-ai-prod:asia-northeast1:tsdg-db` |
 | `<REDIS_HOST>` | Memorystore's address, from 1.4 | `10.12.0.3` |
-| `<VPC_CONNECTOR>` | Serverless VPC connector name | `tsdg-connector` |
+| `<VPC_CONNECTOR>` | Serverless VPC connector name, used by the API service | `tsdg-connector` |
+| `<VPC_NETWORK>` | VPC network the worker pool joins directly, from 1.4 | `default` |
+| `<VPC_SUBNET>` | Subnet in that network | `default` |
 | `<TAG>` | Tag of the version being deployed | `1.0.0` |
 | `<API_URL>` | The API service's URL, from 1.9 | `https://tsdg-api-xxxxx.a.run.app` |
 | `<CLIENT_HOSTS>` | Hosts the service may fetch media from | `files.example.com,storage.example.com` |
@@ -72,8 +76,9 @@ here.
 - Node 24 in Cloud Shell, for the migrations and the scheduler registration: `nvm install 24`
   (the backend requires `>=22.18.0`)
 - Read access to the backend repository
-- The Gemini API key, if a real provider is to be turned on. **A default install does not need
-  one** — see 1.13
+- **Nothing to hold for the model provider.** The worker calls Vertex AI as its own service
+  account, so there is no key to carry into this procedure, store, or revoke afterwards — see
+  1.16
 
 ### 0.4 Permissions required
 
@@ -137,11 +142,16 @@ gcloud services enable \
   redis.googleapis.com \
   secretmanager.googleapis.com \
   vpcaccess.googleapis.com \
-  cloudbuild.googleapis.com
+  cloudbuild.googleapis.com \
+  aiplatform.googleapis.com
 ```
 
 **Expected output.** `Operation "operations/..." finished successfully.` Enabling an API that is
 already enabled is silent and is not an error.
+
+**`aiplatform.googleapis.com` is the one the model calls need** (0.1). Left disabled, everything
+builds and deploys and the first real run fails at the vendor call instead — far from here, and
+reported as a run failure rather than as a missing API.
 
 **On failure.** `PERMISSION_DENIED` means 0.4's roles are not held. Billing not enabled gives
 `FAILED_PRECONDITION`.
@@ -158,7 +168,8 @@ already enabled is silent and is not an error.
 
 ```bash
 gcloud sql instances create <SQL_INSTANCE> \
-  --database-version=MYSQL_8_0 \
+  --database-version=MYSQL_8_4 \
+  --edition=ENTERPRISE \
   --tier=db-custom-2-7680 \
   --region=<REGION> \
   --storage-auto-increase \
@@ -166,9 +177,13 @@ gcloud sql instances create <SQL_INSTANCE> \
 
 gcloud sql databases create tsdg_ai --instance=<SQL_INSTANCE>
 
+# generate the password into a variable, so it can still be read after the command returns
+DATABASE_PASSWORD="$(openssl rand -base64 32 | tr -d '\n')"
+printf '%s\n' "$DATABASE_PASSWORD"
+
 gcloud sql users create tsdg_app \
   --instance=<SQL_INSTANCE> \
-  --password="$(openssl rand -base64 32)"
+  --password="$DATABASE_PASSWORD"
 
 gcloud sql instances describe <SQL_INSTANCE> --format='value(connectionName)'
 ```
@@ -177,8 +192,14 @@ gcloud sql instances describe <SQL_INSTANCE> --format='value(connectionName)'
 0.2 as `<SQL_CONNECTION>`.** Creation takes 10–15 minutes and prints `Creating Cloud SQL
 instance...done.`
 
-**Keep the password.** The third command prints nothing useful — capture the generated password as
-you run it, or set one you already hold. It goes into Secret Manager in 1.6.
+**`--edition` is named because the default is not yours to assume.** The `db-custom-*` tiers
+belong to the Enterprise edition, and an instance created without the flag can be placed in
+Enterprise Plus, which refuses that tier and fails the command. One line removes the question.
+
+**The password is generated into a variable rather than into the command.** Written as
+`--password="$(openssl rand -base64 32)"` the value exists only inside the substitution and is
+gone the moment the command returns — and 1.6 needs it. `tr -d '\n'` is not decoration either:
+1.6 is where the same missing character cost a crash loop.
 
 **On failure.** A name already in use cannot be reused for a week after deletion; choose another.
 
@@ -240,7 +261,7 @@ gcloud artifacts repositories create <AR_REPO> \
 
 ### 1.6 Put the secrets in Secret Manager
 
-**Purpose.** Four values must never appear in a command line, a file in the repository or a Cloud
+**Purpose.** Two values must never appear in a command line, a file in the repository or a Cloud
 Run environment variable set in the console.
 
 **Preconditions.** 1.2, and the Cloud SQL password from 1.3.
@@ -252,16 +273,38 @@ printf '%s' '<the password>' | gcloud secrets create tsdg-database-password --da
 # 32 bytes as 64 hex characters, used to encrypt each client's signing secret at rest.
 # It must be hex and exactly that length: ApiClientSecretCipher refuses anything else by
 # name, so a base64 value here fails at the first request rather than at this step.
-openssl rand -hex 32 | gcloud secrets create tsdg-client-secret-key --data-file=-
+#
+# `tr -d '\n'` is the whole reason this line looks odd, and it is not optional.
+openssl rand -hex 32 | tr -d '\n' | gcloud secrets create tsdg-client-secret-key --data-file=-
 
-# Memorystore's AUTH string, or an empty line when AUTH is off
-printf '%s' '' | gcloud secrets create tsdg-redis-password --data-file=-
-
-# the Gemini API key. Create it empty: a default install answers on the stub and reads nothing
-printf '%s' '' | gcloud secrets create tsdg-gemini-api-key --data-file=-
+# read it back before anything mounts it. 64, not 65
+gcloud secrets versions access latest --secret=tsdg-client-secret-key | wc -c
 ```
 
-**Expected output.** `Created version [1] of the secret [...]` four times.
+**Expected output.** `Created version [1] of the secret [...]` twice, then `64`.
+
+**A trailing newline in `tsdg-client-secret-key` crash-loops the worker, and here is the whole
+chain.** `openssl rand -hex 32` ends its output with a newline; Secret Manager stores the bytes it
+is handed; Cloud Run passes the variable through exactly as stored. So the process reads 65
+characters where it demands 64. `ENCRYPTION_KEY_PATTERN` is `/^[0-9a-f]{64}$/iu` — anchored, with
+no `m` flag, and JavaScript's `$` does not forgive a trailing newline the way a shell comparison
+would. The container exits at boot with `API_CLIENT_SECRET_ENCRYPTION_KEY must be 64 hex
+characters, the 32 bytes AES-256-GCM takes`, and it exits identically on every retry while the
+API service beside it looks healthy. **This happened on the live run**, which is why the `wc -c`
+line above is part of the step rather than advice.
+
+**Two secrets, where the first draft of this runbook created four.** Both of the dropped ones were
+empty placeholders, and an empty secret is worse than an absent one — it is a thing to mount, to
+grant access to, and to forget:
+
+| dropped | why |
+|---|---|
+| `tsdg-redis-password` | Memorystore here runs with AUTH off, and `RedisConnection.generatePassword()` answers `null` for an absent variable. "Send no AUTH" is already what happens; mounting an empty secret only adds a read |
+| `tsdg-gemini-api-key` | The worker reaches Gemini through Vertex AI as itself (0.1, 1.16), so no key is ever read. One created here and filled in later is a live credential nothing consults — exactly the kind nobody remembers to revoke |
+
+**If a key fallback is ever needed**, create that secret at that moment and mount it then. The
+driver prefers Vertex and reads a key only when `VERTEX_AI_PROJECT_ID` and `VERTEX_AI_LOCATION`
+are not both set.
 
 **`tsdg-client-secret-key` cannot be changed later without re-encrypting every client secret.**
 Generate it once and never rotate it casually — see 7.3.
@@ -291,9 +334,18 @@ for ROLE in roles/cloudsql.client roles/secretmanager.secretAccessor; do
       --role="$ROLE" >/dev/null
   done
 done
+
+# only the worker calls the model, and it calls as itself
+gcloud projects add-iam-policy-binding <PROJECT_ID> \
+  --member="serviceAccount:tsdg-worker@<PROJECT_ID>.iam.gserviceaccount.com" \
+  --role="roles/aiplatform.user" >/dev/null
 ```
 
-**Expected output.** Two `Created service account [...]` lines, then the loop runs silently.
+**Expected output.** Two `Created service account [...]` lines, then the loops run silently.
+
+**`roles/aiplatform.user` on the worker alone is what replaces an API key.** This is the whole of
+the provider's credential: granted here, it is never written down, never stored and never rotated.
+The API service does not get it, because the API service never calls a model.
 
 **On failure.** `PERMISSION_DENIED` on the binding means `roles/resourcemanager.projectIamAdmin` is
 not held.
@@ -332,34 +384,54 @@ failure this service fails on at **run** time rather than build time — see 0.1
 **Preconditions.** 1.3, 1.4, 1.6, 1.7, 1.8.
 
 ```bash
-gcloud run deploy tsdg-api \
-  --image=<REGION>-docker.pkg.dev/<PROJECT_ID>/<AR_REPO>/tsdg-ai-backend:<TAG> \
-  --region=<REGION> \
-  --service-account=tsdg-api@<PROJECT_ID>.iam.gserviceaccount.com \
-  --add-cloudsql-instances=<SQL_CONNECTION> \
-  --vpc-connector=<VPC_CONNECTOR> \
-  --no-allow-unauthenticated \
-  --set-env-vars=NODE_ENV=production \
-  --set-env-vars=DATABASE_NAME=tsdg_ai \
-  --set-env-vars=DATABASE_USERNAME=tsdg_app \
-  --set-env-vars=DATABASE_DIALECT=mariadb \
-  --set-env-vars=DATABASE_HOST=/cloudsql/<SQL_CONNECTION> \
-  --set-env-vars=DATABASE_PORT=3306 \
-  --set-env-vars=REDIS_HOST=<REDIS_HOST> \
-  --set-env-vars=REDIS_PORT=6379 \
-  --set-env-vars=REDIS_TLS= \
-  --set-env-vars=MEDIA_FETCH_ALLOWED_HOSTS=<CLIENT_HOSTS> \
-  --set-secrets=DATABASE_PASSWORD=tsdg-database-password:latest \
-  --set-secrets=API_CLIENT_SECRET_ENCRYPTION_KEY=tsdg-client-secret-key:latest \
-  --set-secrets=REDIS_PASSWORD=tsdg-redis-password:latest \
-  --set-secrets=GEMINI_API_KEY=tsdg-gemini-api-key:latest
+# every value in one file, so that no line continuation can be lost in transit
+cat > ~/api-env.yaml <<'YAML'
+NODE_ENV: production
+DATABASE_NAME: tsdg_ai
+DATABASE_USERNAME: tsdg_app
+DATABASE_DIALECT: mariadb
+DATABASE_HOST: /cloudsql/<SQL_CONNECTION>
+DATABASE_PORT: '3306'
+REDIS_HOST: <REDIS_HOST>
+REDIS_PORT: '6379'
+MEDIA_FETCH_ALLOWED_HOSTS: <CLIENT_HOSTS>
+VERTEX_AI_PROJECT_ID: <PROJECT_ID>
+VERTEX_AI_LOCATION: <REGION>
+YAML
+
+# one line, no continuations
+gcloud run deploy tsdg-api --image=<REGION>-docker.pkg.dev/<PROJECT_ID>/<AR_REPO>/tsdg-ai-backend:<TAG> --region=<REGION> --service-account=tsdg-api@<PROJECT_ID>.iam.gserviceaccount.com --set-cloudsql-instances=<SQL_CONNECTION> --vpc-connector=<VPC_CONNECTOR> --no-allow-unauthenticated --env-vars-file=$HOME/api-env.yaml --set-secrets=DATABASE_PASSWORD=tsdg-database-password:latest,API_CLIENT_SECRET_ENCRYPTION_KEY=tsdg-client-secret-key:latest
 
 gcloud run services describe tsdg-api --region=<REGION> --format='value(status.url)'
+
+# count what the revision actually holds. Eleven, not six
+gcloud run services describe tsdg-api --region=<REGION> --format='value(spec.template.spec.containers[0].env[].name)' | tr ';' '\n' | wc -l
 ```
 
 **Expected output.** `Service [tsdg-api] revision [tsdg-api-00001-abc] has been deployed and is
 serving 100 percent of traffic.` The last command prints the URL. **Write it into 0.2 as
 `<API_URL>`.**
+
+**The environment is a file, and the deploy is one line, because of what the obvious form does.**
+A pasted block of a dozen `--set-env-vars` flags joined by backslashes loses a backslash the way
+pasted text does, and the loss is silent: the shell takes the broken line as the end of the
+command, everything after it is dropped, the deploy **succeeds**, and the revision comes up
+holding six variables where eleven were written. That is what happened on the live run, and the
+symptom was a worker that would not boot rather than an error at this step. A file cannot lose a
+line, `--env-vars-file` replaces the whole set rather than merging into it, and the count above
+says whether the revision got what the file said.
+
+**Quote the numbers in the YAML.** `DATABASE_PORT: 3306` is an integer to a YAML parser, and this
+flag wants strings; `'3306'` is a string. Same for the Redis port.
+
+**`REDIS_TLS` and `REDIS_PASSWORD` are absent deliberately.** The Redis sits inside the VPC with
+AUTH off, and both readers treat an absent variable as a decision rather than an omission — `null`
+for the password, no TLS for the transport. `REDIS_TLS=` as an empty value says the same thing
+less clearly, and an empty value inside a comma-separated `--set-env-vars` list is a trap of its
+own.
+
+**`--set-cloudsql-instances`, not `--add-`.** `--add-` appends, so a second deploy lists the same
+instance twice. It is harmless, and it is also permanent noise in every `describe` after it.
 
 **`MEDIA_FETCH_ALLOWED_HOSTS` left empty refuses every media URL**, and every run then ends
 `failed` with `MEDIA_UNREADABLE` and zero model calls. That is the allow-list working, not a
@@ -381,24 +453,32 @@ missing `NODE_ENV` are the two boot failures this service has.
 **Preconditions.** 1.9.
 
 ```bash
-gcloud beta run worker-pools deploy tsdg-worker \
-  --image=<REGION>-docker.pkg.dev/<PROJECT_ID>/<AR_REPO>/tsdg-ai-backend:<TAG> \
-  --region=<REGION> \
-  --service-account=tsdg-worker@<PROJECT_ID>.iam.gserviceaccount.com \
-  --add-cloudsql-instances=<SQL_CONNECTION> \
-  --vpc-connector=<VPC_CONNECTOR> \
-  --command=node --args=scripts/startJobDaemon.js \
-  --min-instances=1 \
-  --set-env-vars=NODE_ENV=production \
-  ... # the same environment and secrets as 1.9
+# the same eleven values as 1.9. A service and a worker pool are configured separately,
+# so the file is handed over again rather than shared
+cp ~/api-env.yaml ~/worker-env.yaml
+
+# one line, no continuations
+gcloud beta run worker-pools deploy tsdg-worker --image=<REGION>-docker.pkg.dev/<PROJECT_ID>/<AR_REPO>/tsdg-ai-backend:<TAG> --region=<REGION> --service-account=tsdg-worker@<PROJECT_ID>.iam.gserviceaccount.com --set-cloudsql-instances=<SQL_CONNECTION> --network=<VPC_NETWORK> --subnet=<VPC_SUBNET> --vpc-egress=private-ranges-only --command=node --args=scripts/startJobDaemon.js --instances=1 --env-vars-file=$HOME/worker-env.yaml --set-secrets=DATABASE_PASSWORD=tsdg-database-password:latest,API_CLIENT_SECRET_ENCRYPTION_KEY=tsdg-client-secret-key:latest
 ```
 
 **Expected output.** `Worker pool [tsdg-worker] has been deployed.`
 
-**`--min-instances=1` is not optional.** A worker pool scaled to zero consumes no queue, and a run
+**A worker pool does not take the flags a service takes.** `worker-pools deploy` **rejects**
+`--vpc-connector` and `--min-instances` outright; it joins the VPC by network and subnet directly,
+and its instance count has a different flag name. Copying 1.9's command and changing the noun
+fails twice before it works:
+
+| a service takes | a worker pool takes |
+|---|---|
+| `--vpc-connector=<VPC_CONNECTOR>` | `--network=<VPC_NETWORK> --subnet=<VPC_SUBNET> --vpc-egress=private-ranges-only` |
+| `--min-instances=1` | `--instances=1` |
+
+**`--instances=1` is not optional.** A worker pool scaled to zero consumes no queue, and a run
 accepted with `202` would sit in Redis until something scaled it up.
 
-**On failure.** Same logs command with `worker-pools`.
+**On failure.** Same logs command with `worker-pools`. A pool that boots and dies within seconds,
+repeatedly, while the API service beside it serves normally, is 1.6's trailing newline — read the
+log for the key's name before looking anywhere else.
 
 **Rollback.** Delete the worker pool. Queued runs stay in Redis and resume when it returns.
 
@@ -427,6 +507,10 @@ export DATABASE_NAME=tsdg_ai DATABASE_USERNAME=tsdg_app
 export DATABASE_PASSWORD='<the password from 1.3>'
 export DATABASE_DIALECT=mariadb
 touch .env   # renchan-env throws without it under NODE_ENV=production
+
+# 127.0.0.1 is a host here and /cloudsql/... is a socket there, and one setting carries
+# both: DatabaseDialectOptionsBuilder treats a value beginning with "/" as a socket path
+# and anything else as a host, so the same NODE_ENV=production works through the proxy
 
 npx sequelize-cli db:migrate
 ```
@@ -621,7 +705,9 @@ A fresh install answers on the **stub**: deterministic fixtures, no key read, no
 That is the shipped default — §17 expresses it as data rather than as a branch — and turning a
 vendor on is a change of **one row**.
 
-**Preconditions.** 1.15 passed, and `tsdg-gemini-api-key` holding a real key.
+**Preconditions.** 1.15 passed, `aiplatform.googleapis.com` enabled (1.2), the worker holding
+`roles/aiplatform.user` (1.7), and `VERTEX_AI_PROJECT_ID` / `VERTEX_AI_LOCATION` in the worker's
+environment (1.10).
 
 **The switch is the binding row, and nothing else.**
 
@@ -642,15 +728,15 @@ sets it and stops would keep receiving stub answers with no error, no warning an
 was ignored. This was measured, not assumed: a run configured that way came back `succeeded` with
 three model calls, answered by the stub.
 
-**Then restart the worker so it picks the row up, and run one request.**
+**Nothing is deployed for this, and nothing is restarted.** There is no key to add, because the
+worker authenticates as itself; and `AiAgentModelBindingFinder` reads the agent, its bound model
+and the driver with one `findOne` **per run**, holding no cache across runs. So the `UPDATE` above
+takes effect on the next request — which is also why the rollback at the end of this step takes
+effect on the next request, and why neither direction needs a revision.
 
-```bash
-gcloud secrets versions add tsdg-gemini-api-key --data-file=-   # paste the key, then Ctrl-D
-gcloud beta run worker-pools update tsdg-worker --region=<REGION> \
-  --update-secrets=GEMINI_API_KEY=tsdg-gemini-api-key:latest
-```
+**Then run one request** — 1.15's step 2 — and read the token rows.
 
-**Expected output — and this is the only thing that proves it.** Repeat 1.15's step 2, then:
+**Expected output — and this is the only thing that proves it.**
 
 ```sql
 SELECT m.name, c.input_token_count, c.output_token_count
@@ -661,9 +747,11 @@ ORDER BY c.id DESC LIMIT 5;
 The newest rows must say `gemini-2-5-flash`. **If they say `stub`, the switch did not take** — and
 nothing in the running service will tell you, because a stub answer is a successful answer.
 
-**On failure.** A model named in the binding whose provider has no driver, or a driver with no key,
-refuses the run rather than answering — so a `failed` run here is the honest outcome and a
-`succeeded` one answered by `stub` is the dangerous one.
+**On failure.** A model named in the binding whose provider has no driver refuses the run rather
+than answering — so a `failed` run here is the honest outcome, and a `succeeded` one answered by
+`stub` is the dangerous one. A `PERMISSION_DENIED` from `aiplatform` names the missing half of 1.7
+directly; a configuration that set only one of the two `VERTEX_AI_*` values falls back to the key
+path and refuses for a missing key, which reads as a vendor problem and is not one.
 
 **Rollback.** Set the binding back to the `stub` row. It takes effect on the next run.
 
@@ -791,10 +879,69 @@ the same release.
 
 ---
 
+## Part III — Rotating a client's signing secret
+
+**From image `1.0.2` onward.** A client that has to change its secret — because it leaked, or
+because a policy says so — does not get a new registration. Two commands move it, hours or days
+apart, and the old secret keeps working in between.
+
+**Preconditions.** The Cloud SQL proxy and the exported environment of 1.11, including
+`API_CLIENT_SECRET_ENCRYPTION_KEY` as in 1.14.
+
+### 3.1 Give the client its new secret
+
+```bash
+node scripts/rotateApiClientSecret.js '<the client's name>'
+```
+
+**Expected output.** `rotated`, with the new secret printed once. The old secret moves into the
+client's previous slot and keeps verifying; the new one is what callbacks are signed with from
+this moment.
+
+**Hand the new secret to the client's callback verifier first, and to its request signer second.**
+The asymmetry is the one thing that bites here. Inbound requests are checked against both secrets,
+so the client may keep signing with the old one for as long as it needs. **Outbound callbacks are
+signed with the new one only.** A client whose callback verifier still holds just the old secret
+rejects every callback sent during the window with `401`; each is retried seven times over about
+an hour and then dropped. Polling still returns the result, so the loss is a notification rather
+than a run — but it is a loss, and it is avoidable by ordering the two sides correctly.
+
+**On failure.** `rotation-already-under-way` (exit 1) means a previous rotation was never retired;
+run 3.2 first. `client-not-found` (exit 1) means the name is wrong — it is the client's `name`,
+not its client key.
+
+**Rollback.** None, and this is deliberate: the old secret is still accepted, so there is nothing
+to undo. The new secret cannot be reprinted — a client that lost it rotates again.
+
+**Interrupts service?** No.
+
+### 3.2 Retire the old secret, once the client has deployed
+
+```bash
+node scripts/retireApiClientPreviousSecret.js '<the client's name>'
+```
+
+**Expected output.** `retired`. From here only the new secret verifies.
+
+**Do not run this until the client confirms it is signing with the new secret.** This is the step
+that closes the window, and running it early is indistinguishable, from the client's side, from
+the service rejecting valid requests.
+
+**On failure.** `nothing-to-retire` **exits 0** — the slot was already empty, which is what a
+second run looks like and is not an error.
+
+**Rollback.** None. The old secret is gone from the row; a client still holding it rotates again.
+
+**Interrupts service?** Only for a client that never deployed the new secret, which this step
+assumes has happened.
+
+---
+
 ## Chapter 7 — Open issues
 
-**This document is DRAFT until these are closed.** 7.1 and 7.2 block Part I; 7.3 and 7.4 are traps
-that would be discovered in production.
+**7.1 and 7.2 are closed, and this document is no longer a draft — it has been walked end to
+end.** What remains is 7.3's two script traps and 7.4's operational gaps. None of them blocks a
+build, and one of 7.4's four closed itself when the driver gained a Vertex AI path.
 
 ### 7.1 The service could not run on Cloud Run — **CLOSED, 2026-09-29**
 
@@ -848,7 +995,8 @@ mode was invisible. It exits 1 now, and two tests pin it.
   should be corrected so the workaround is not needed.
 - **`API_CLIENT_SECRET_ENCRYPTION_KEY` cannot be rotated by replacing the value.** Every stored
   client secret is encrypted under it, so a new value makes all of them undecryptable at once.
-  Rotating it means re-encrypting every row, and no tool does that today.
+  Rotating it means re-encrypting every row, and no tool does that today. **A client's own signing
+  secret is a different matter and does rotate** — Part III, from 1.0.2 onward.
 
 ### 7.4 Operational gaps this deployment shape creates
 
@@ -863,9 +1011,11 @@ mode was invisible. It exits 1 now, and two tests pin it.
 - **No TLS option exists on the SQL connection** (`Q24`). Reaching Cloud SQL over the connector's
   unix socket avoids the exposure, which is why 1.9 uses `/cloudsql/<SQL_CONNECTION>` rather than a
   host and port. Do not point `DATABASE_HOST` at a public IP.
-- **The provider is reached by API key, not by a service account.** Vertex AI with the worker's own
-  identity would remove the key from Secret Manager entirely. That is a change to the driver, not to
-  this deployment.
+- **The provider is reached by a service account, not by an API key — CLOSED.** The driver gained a
+  Vertex AI path (`GeminiApiClient.createWithVertexAi()`), the worker calls as its own identity
+  under `roles/aiplatform.user`, and no key exists in Secret Manager or anywhere else. A key is
+  still read as a fallback when `VERTEX_AI_PROJECT_ID` and `VERTEX_AI_LOCATION` are not both set,
+  so the fallback remains available without being configured.
 
 ---
 
@@ -892,7 +1042,16 @@ gcloud run services describe tsdg-api --region=<REGION> \
 gcloud beta run worker-pools describe tsdg-worker --region=<REGION> \
   --format='value(status.conditions[0].message)'
 redis-cli -h <REDIS_HOST> --scan --pattern 'bull:*:meta'
+
+# the worker's own log. Ask for a window or an order, never both
+gcloud logging read 'resource.type="cloud_run_worker_pool" AND resource.labels.worker_pool_name="tsdg-worker"' \
+  --freshness=1h --limit=50
 ```
+
+**`--order=asc` makes `--freshness` do nothing, and says so nowhere.** The combination returns the
+oldest lines the project holds, which during a crash loop looks exactly like a service that has
+been broken since the beginning of time. Drop `--order` and read newest-first, or widen
+`--limit`.
 
 ### 9.2 The four questions worth a query
 
