@@ -336,9 +336,6 @@ DATABASE_HOST: /cloudsql/<SQL_CONNECTION>
 DATABASE_PORT: '3306'
 REDIS_HOST: <REDIS_HOST>
 REDIS_PORT: '6379'
-MEDIA_FETCH_ALLOWED_HOSTS: <CLIENT_HOSTS>
-VERTEX_AI_PROJECT_ID: <PROJECT_ID>
-VERTEX_AI_LOCATION: <REGION>
 YAML
 
 # 1 行で。行継続を使わない
@@ -346,13 +343,13 @@ gcloud run deploy tsdg-api --image=<REGION>-docker.pkg.dev/<PROJECT_ID>/<AR_REPO
 
 gcloud run services describe tsdg-api --region=<REGION> --format='value(status.url)'
 
-# リビジョンが実際に持っている数を数える。11 であって 6 ではない
+# リビジョンが実際に持っている数を数える。10：上の 8 つとシークレット 2 つ
 gcloud run services describe tsdg-api --region=<REGION> --format='value(spec.template.spec.containers[0].env[].name)' | tr ';' '\n' | wc -l
 ```
 
 **期待される出力。** `Service [tsdg-api] revision [tsdg-api-00001-abc] has been deployed and is serving 100 percent of traffic.` 最後のコマンドが URL を表示する。**これを 0.2 の `<API_URL>` に書き込むこと。**
 
-**環境変数をファイルにし、デプロイを 1 行にするのは、素直な書き方が何をするかのためである。** `--set-env-vars` を十数個バックスラッシュで繋いだブロックを貼ると、貼り付けテキストがそうであるようにバックスラッシュが 1 つ失われる。そしてその欠落は静かである：シェルは壊れた行をコマンドの終わりと受け取り、それ以降はすべて落ち、デプロイは**成功し**、リビジョンは 11 書いたところを 6 だけ持って立ち上がる。本番の実行で起きたのはこれで、症状はこの手順でのエラーでなく、起動しないワーカーであった。ファイルは行を失わないし、`--env-vars-file` は集合をマージではなく丸こと置き換える。上の数える行が、ファイルの言ったものがリビジョンに届いたかを告げる。
+**環境変数をファイルにし、デプロイを 1 行にするのは、素直な書き方が何をするかのためである。** `--set-env-vars` を十数個バックスラッシュで繋いだブロックを貼ると、貼り付けテキストがそうであるようにバックスラッシュが 1 つ失われる。そしてその欠落は静かである：シェルは壊れた行をコマンドの終わりと受け取り、それ以降はすべて落ち、デプロイは**成功し**、リビジョンは書いたものの一部だけを持って立ち上がる。本番の実行で起きたのはこれであり — 1.10 のワーカープールで、11 つの値が 6 つになって届いた — 症状はデプロイでのエラーでなく、起動しないワーカーであった。ファイルは行を失わないし、`--env-vars-file` は集合をマージではなく丸こと置き換える。上の数える行が、ファイルの言ったものがリビジョンに届いたかを告げる。
 
 **YAML 内の数値はクォートする。** `DATABASE_PORT: 3306` は YAML パーサにとって整数であり、このフラグは文字列を要求する。`'3306'` は文字列である。Redis のポートも同じ。
 
@@ -360,7 +357,7 @@ gcloud run services describe tsdg-api --region=<REGION> --format='value(spec.tem
 
 **`--add-` ではなく `--set-cloudsql-instances` を使う。** `--add-` は追加するので、2 度目のデプロイで同じインスタンスが 2 回並ぶ。無害であり、その後のあらゆる `describe` に永続的に残る雑音でもある。
 
-**`MEDIA_FETCH_ALLOWED_HOSTS` を空のままにすると、あらゆるメディア URL が拒否され**、すべての実行が `MEDIA_UNREADABLE` で `failed` となり、モデル呼び出しは 0 回になる。それは許可リストが機能している証拠であって欠陥ではない — が、空の値は「何一つ成功しない」を静かに意味する。スモークチェックの前に設定すること。
+**API サービスは 8 つ、ワーカーは 11 つを持つ。** API が受け取らない 3 つ — メディアの許可リストと Vertex の 2 つ — は `MediaFetchClient` とモデルドライバが読むものであり、どちらもワーカーでしか走らない。API サービスにも渡してしまうと、決して読まない半分を構成することになり、後からは 2 か所で有効な設定のように読めてしまう。3 つは 1.10 で追加する。
 
 **失敗したとき。** `Revision is not ready` はたいていコンテナが起動時に終了したことを意味する。`gcloud run services logs read tsdg-api --region=<REGION> --limit=50` を読むこと。このサービスの起動失敗は `.env` の欠如と `NODE_ENV` の欠如の 2 つである。
 
@@ -375,15 +372,28 @@ gcloud run services describe tsdg-api --region=<REGION> --format='value(spec.tem
 **前提。** 1.9。
 
 ```bash
-# 1.9 と同じ 11 つの値。サービスとワーカープールは別々に設定されるので、
-# 共有するのではなくもう一度渡す
+# 1.9 の 8 つに、ワーカーだけが読む 3 つを追加する。サービスとワーカープールは
+# 別々に設定されるので、共有するのではなくもう一度渡す
 cp ~/api-env.yaml ~/worker-env.yaml
+cat >> ~/worker-env.yaml <<'YAML'
+MEDIA_FETCH_ALLOWED_HOSTS: <CLIENT_HOSTS>
+VERTEX_AI_PROJECT_ID: <PROJECT_ID>
+VERTEX_AI_LOCATION: <REGION>
+YAML
 
 # 1 行で。行継続を使わない
 gcloud beta run worker-pools deploy tsdg-worker --image=<REGION>-docker.pkg.dev/<PROJECT_ID>/<AR_REPO>/tsdg-ai-backend:<TAG> --region=<REGION> --service-account=tsdg-worker@<PROJECT_ID>.iam.gserviceaccount.com --set-cloudsql-instances=<SQL_CONNECTION> --network=<VPC_NETWORK> --subnet=<VPC_SUBNET> --vpc-egress=private-ranges-only --command=node --args=scripts/startJobDaemon.js --instances=1 --env-vars-file=$HOME/worker-env.yaml --set-secrets=DATABASE_PASSWORD=tsdg-database-password:latest,API_CLIENT_SECRET_ENCRYPTION_KEY=tsdg-client-secret-key:latest
 ```
 
-**期待される出力。** `Worker pool [tsdg-worker] has been deployed.`
+**期待される出力。** `Worker pool [tsdg-worker] has been deployed.` その上で保有数を数える — 13：上の 11 つとシークレット 2 つ。本番の実行で 11 が 6 になって届いたのはこのデプロイである。数えるのは飾りでなく手順そのものである。
+
+```bash
+gcloud beta run worker-pools describe tsdg-worker --region=<REGION> --format='value(spec.template.spec.containers[0].env[].name)' | tr ';' '\n' | wc -l
+```
+
+**API サービスが受け取らない 3 つが、ワーカーが異なる理由のすべてである。** `MEDIA_FETCH_ALLOWED_HOSTS` は `MediaFetchClient` が読み、2 つの `VERTEX_AI_*` はモデルドライバが読む。メディアの取得とモデルの呼び出しはワーカーでしか起きない。
+
+**`MEDIA_FETCH_ALLOWED_HOSTS` を空のままにすると、あらゆるメディア URL が拒否され**、すべての実行が `MEDIA_UNREADABLE` で `failed` となり、モデル呼び出しは 0 回になる。それは許可リストが機能している証拠であって欠陥ではない — が、空の値は「何一つ成功しない」を静かに意味する。スモークチェックの前に設定すること。
 
 **ワーカープールはサービスが取るフラグを取らない。** `worker-pools deploy` は `--vpc-connector` と `--min-instances` を**その場で拒否する**。VPC にはネットワークとサブネットで直接参加し、インスタンス数のフラグ名も異なる。1.9 のコマンドを写して名詞だけ変えると、2 度失敗してから通る：
 

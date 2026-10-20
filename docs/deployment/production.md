@@ -394,9 +394,6 @@ DATABASE_HOST: /cloudsql/<SQL_CONNECTION>
 DATABASE_PORT: '3306'
 REDIS_HOST: <REDIS_HOST>
 REDIS_PORT: '6379'
-MEDIA_FETCH_ALLOWED_HOSTS: <CLIENT_HOSTS>
-VERTEX_AI_PROJECT_ID: <PROJECT_ID>
-VERTEX_AI_LOCATION: <REGION>
 YAML
 
 # one line, no continuations
@@ -404,7 +401,7 @@ gcloud run deploy tsdg-api --image=<REGION>-docker.pkg.dev/<PROJECT_ID>/<AR_REPO
 
 gcloud run services describe tsdg-api --region=<REGION> --format='value(status.url)'
 
-# count what the revision actually holds. Eleven, not six
+# count what the revision actually holds. Ten: the eight above, plus the two secrets
 gcloud run services describe tsdg-api --region=<REGION> --format='value(spec.template.spec.containers[0].env[].name)' | tr ';' '\n' | wc -l
 ```
 
@@ -416,10 +413,11 @@ serving 100 percent of traffic.` The last command prints the URL. **Write it int
 A pasted block of a dozen `--set-env-vars` flags joined by backslashes loses a backslash the way
 pasted text does, and the loss is silent: the shell takes the broken line as the end of the
 command, everything after it is dropped, the deploy **succeeds**, and the revision comes up
-holding six variables where eleven were written. That is what happened on the live run, and the
-symptom was a worker that would not boot rather than an error at this step. A file cannot lose a
-line, `--env-vars-file` replaces the whole set rather than merging into it, and the count above
-says whether the revision got what the file said.
+holding a fraction of what was written. That is what happened on the live run — to the worker
+pool of 1.10, whose eleven values arrived as six — and the symptom was a worker that would not
+boot rather than an error at the deploy. A file cannot lose a line, `--env-vars-file` replaces
+the whole set rather than merging into it, and the count above says whether the revision got
+what the file said.
 
 **Quote the numbers in the YAML.** `DATABASE_PORT: 3306` is an integer to a YAML parser, and this
 flag wants strings; `'3306'` is a string. Same for the Redis port.
@@ -433,10 +431,11 @@ own.
 **`--set-cloudsql-instances`, not `--add-`.** `--add-` appends, so a second deploy lists the same
 instance twice. It is harmless, and it is also permanent noise in every `describe` after it.
 
-**`MEDIA_FETCH_ALLOWED_HOSTS` left empty refuses every media URL**, and every run then ends
-`failed` with `MEDIA_UNREADABLE` and zero model calls. That is the allow-list working, not a
-defect — but it means an empty value is a silent "nothing will ever succeed". Set it before the
-smoke check.
+**The API service holds eight values, and the worker holds eleven.** The three it does not get —
+the media allow-list and the two Vertex settings — are read by `MediaFetchClient` and by the
+model driver, and both of those run only in the worker. Handing them to the API service as well
+would configure a half of the system that never reads them, which later reads as a setting that
+is in force in two places. 1.10 adds the three.
 
 **On failure.** `Revision is not ready` usually means the container exited at boot. Read
 `gcloud run services logs read tsdg-api --region=<REGION> --limit=50`; a missing `.env` and a
@@ -453,15 +452,35 @@ missing `NODE_ENV` are the two boot failures this service has.
 **Preconditions.** 1.9.
 
 ```bash
-# the same eleven values as 1.9. A service and a worker pool are configured separately,
-# so the file is handed over again rather than shared
+# 1.9's eight, plus the three only the worker reads. A service and a worker pool are
+# configured separately, so the file is handed over again rather than shared
 cp ~/api-env.yaml ~/worker-env.yaml
+cat >> ~/worker-env.yaml <<'YAML'
+MEDIA_FETCH_ALLOWED_HOSTS: <CLIENT_HOSTS>
+VERTEX_AI_PROJECT_ID: <PROJECT_ID>
+VERTEX_AI_LOCATION: <REGION>
+YAML
 
 # one line, no continuations
 gcloud beta run worker-pools deploy tsdg-worker --image=<REGION>-docker.pkg.dev/<PROJECT_ID>/<AR_REPO>/tsdg-ai-backend:<TAG> --region=<REGION> --service-account=tsdg-worker@<PROJECT_ID>.iam.gserviceaccount.com --set-cloudsql-instances=<SQL_CONNECTION> --network=<VPC_NETWORK> --subnet=<VPC_SUBNET> --vpc-egress=private-ranges-only --command=node --args=scripts/startJobDaemon.js --instances=1 --env-vars-file=$HOME/worker-env.yaml --set-secrets=DATABASE_PASSWORD=tsdg-database-password:latest,API_CLIENT_SECRET_ENCRYPTION_KEY=tsdg-client-secret-key:latest
 ```
 
-**Expected output.** `Worker pool [tsdg-worker] has been deployed.`
+**Expected output.** `Worker pool [tsdg-worker] has been deployed.` Then count what it holds —
+thirteen: the eleven above plus the two secrets. This is the deploy whose eleven arrived as six
+on the live run, so the count is the step, not a flourish.
+
+```bash
+gcloud beta run worker-pools describe tsdg-worker --region=<REGION> --format='value(spec.template.spec.containers[0].env[].name)' | tr ';' '\n' | wc -l
+```
+
+**The three values the API service does not get are the worker's whole reason for differing.**
+`MEDIA_FETCH_ALLOWED_HOSTS` is read by `MediaFetchClient`, and the two `VERTEX_AI_*` values by
+the model driver; media is fetched and models are called in the worker and nowhere else.
+
+**`MEDIA_FETCH_ALLOWED_HOSTS` left empty refuses every media URL**, and every run then ends
+`failed` with `MEDIA_UNREADABLE` and zero model calls. That is the allow-list working, not a
+defect — but it means an empty value is a silent "nothing will ever succeed". Set it before the
+smoke check.
 
 **A worker pool does not take the flags a service takes.** `worker-pools deploy` **rejects**
 `--vpc-connector` and `--min-instances` outright; it joins the VPC by network and subnet directly,
