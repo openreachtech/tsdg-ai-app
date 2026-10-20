@@ -339,15 +339,27 @@ REDIS_PORT: '6379'
 YAML
 
 # 1 行で。行継続を使わない
-gcloud run deploy tsdg-api --image=<REGION>-docker.pkg.dev/<PROJECT_ID>/<AR_REPO>/tsdg-ai-backend:<TAG> --region=<REGION> --service-account=tsdg-api@<PROJECT_ID>.iam.gserviceaccount.com --set-cloudsql-instances=<SQL_CONNECTION> --vpc-connector=<VPC_CONNECTOR> --no-allow-unauthenticated --env-vars-file=$HOME/api-env.yaml --set-secrets=DATABASE_PASSWORD=tsdg-database-password:latest,API_CLIENT_SECRET_ENCRYPTION_KEY=tsdg-client-secret-key:latest
+gcloud run deploy tsdg-api --image=<REGION>-docker.pkg.dev/<PROJECT_ID>/<AR_REPO>/tsdg-ai-backend:<TAG> --region=<REGION> --service-account=tsdg-api@<PROJECT_ID>.iam.gserviceaccount.com --set-cloudsql-instances=<SQL_CONNECTION> --vpc-connector=<VPC_CONNECTOR> --allow-unauthenticated --env-vars-file=$HOME/api-env.yaml --set-secrets=DATABASE_PASSWORD=tsdg-database-password:latest,API_CLIENT_SECRET_ENCRYPTION_KEY=tsdg-client-secret-key:latest
 
 gcloud run services describe tsdg-api --region=<REGION> --format='value(status.url)'
 
 # リビジョンが実際に持っている数を数える。10：上の 8 つとシークレット 2 つ
 gcloud run services describe tsdg-api --region=<REGION> --format='value(spec.template.spec.containers[0].env[].name)' | tr ';' '\n' | wc -l
+
+# そもそもクライアントが到達できるか。アプリケーションからの 401 であり、403 ではない
+curl -s -o /dev/null -w '%{http_code}\n' -X POST "$(gcloud run services describe tsdg-api --region=<REGION> --format='value(status.url)')/v1/asset-media-extractions" -H 'content-type: application/json' -d '{}'
 ```
 
 **期待される出力。** `Service [tsdg-api] revision [tsdg-api-00001-abc] has been deployed and is serving 100 percent of traffic.` 最後のコマンドが URL を表示する。**これを 0.2 の `<API_URL>` に書き込むこと。**
+
+**`--allow-unauthenticated` は必須であり、「API が無認証」を意味しない。** これが制御するのは Cloud Run 自身の IAM チェックであり、それはリクエストがコンテナに届く前に走る。クライアントの認証はその一段先、アプリケーション層で行われる：すべてのリクエストが `x-ort-client-id`、`x-ort-timestamp`、そして HMAC 署名を運び、公開ルートもヘルスチェックもゲスト許可リストも存在しない。`--no-allow-unauthenticated` でデプロイすると、Cloud Run はクライアントが生成しようのない**Google 署名の ID トークン**を要求し、署名が読まれる前に **403** で返す。
+
+**403 と 401 の区別が要で、このサービスが動いているのはうち片方だけである。** 上の `curl` は署名無しなので、アプリケーションは **401** で拒否しなければならない。**403** は Cloud Run がサービスの手前で拒否していることであり、外から見れば資格情報が違っているクライアントと全く同じに見える — これが、誰も到達できないまま「稼働中」と報告され得る経路である。**これは本番で実際に起きていた**：サービスに IAM バインディングが 1 つも無く、外部からのリクエストはすべて 403 で返っていた。直し方はコマンド 1 つである：
+
+```bash
+gcloud run services add-iam-policy-binding tsdg-api --region=<REGION> \
+  --member=allUsers --role=roles/run.invoker
+```
 
 **環境変数をファイルにし、デプロイを 1 行にするのは、素直な書き方が何をするかのためである。** `--set-env-vars` を十数個バックスラッシュで繋いだブロックを貼ると、貼り付けテキストがそうであるようにバックスラッシュが 1 つ失われる。そしてその欠落は静かである：シェルは壊れた行をコマンドの終わりと受け取り、それ以降はすべて落ち、デプロイは**成功し**、リビジョンは書いたものの一部だけを持って立ち上がる。本番の実行で起きたのはこれであり — 1.10 のワーカープールで、11 つの値が 6 つになって届いた — 症状はデプロイでのエラーでなく、起動しないワーカーであった。ファイルは行を失わないし、`--env-vars-file` は集合をマージではなく丸こと置き換える。上の数える行が、ファイルの言ったものがリビジョンに届いたかを告げる。
 

@@ -397,17 +397,39 @@ REDIS_PORT: '6379'
 YAML
 
 # one line, no continuations
-gcloud run deploy tsdg-api --image=<REGION>-docker.pkg.dev/<PROJECT_ID>/<AR_REPO>/tsdg-ai-backend:<TAG> --region=<REGION> --service-account=tsdg-api@<PROJECT_ID>.iam.gserviceaccount.com --set-cloudsql-instances=<SQL_CONNECTION> --vpc-connector=<VPC_CONNECTOR> --no-allow-unauthenticated --env-vars-file=$HOME/api-env.yaml --set-secrets=DATABASE_PASSWORD=tsdg-database-password:latest,API_CLIENT_SECRET_ENCRYPTION_KEY=tsdg-client-secret-key:latest
+gcloud run deploy tsdg-api --image=<REGION>-docker.pkg.dev/<PROJECT_ID>/<AR_REPO>/tsdg-ai-backend:<TAG> --region=<REGION> --service-account=tsdg-api@<PROJECT_ID>.iam.gserviceaccount.com --set-cloudsql-instances=<SQL_CONNECTION> --vpc-connector=<VPC_CONNECTOR> --allow-unauthenticated --env-vars-file=$HOME/api-env.yaml --set-secrets=DATABASE_PASSWORD=tsdg-database-password:latest,API_CLIENT_SECRET_ENCRYPTION_KEY=tsdg-client-secret-key:latest
 
 gcloud run services describe tsdg-api --region=<REGION> --format='value(status.url)'
 
 # count what the revision actually holds. Ten: the eight above, plus the two secrets
 gcloud run services describe tsdg-api --region=<REGION> --format='value(spec.template.spec.containers[0].env[].name)' | tr ';' '\n' | wc -l
+
+# the client has to be able to reach it at all. 401 from the application, never 403
+curl -s -o /dev/null -w '%{http_code}\n' -X POST "$(gcloud run services describe tsdg-api --region=<REGION> --format='value(status.url)')/v1/asset-media-extractions" -H 'content-type: application/json' -d '{}'
 ```
 
 **Expected output.** `Service [tsdg-api] revision [tsdg-api-00001-abc] has been deployed and is
 serving 100 percent of traffic.` The last command prints the URL. **Write it into 0.2 as
 `<API_URL>`.**
+
+**`--allow-unauthenticated` is required, and it does not mean the API is unauthenticated.** It
+governs Cloud Run's own IAM check, which runs before a request reaches the container. The client
+authenticates one layer further in: every request carries `x-ort-client-id`, `x-ort-timestamp` and
+an HMAC signature, and there is no public route, no health check and no guest allow-list. Deployed
+with `--no-allow-unauthenticated`, Cloud Run demands a **Google-signed identity token** the client
+has no way to produce, and answers **403** before the signature is ever read.
+
+**403 and 401 are the two outcomes to tell apart, and only one of them is this service working.**
+The `curl` above is unsigned, so the application must refuse it with **401**. A **403** is Cloud
+Run refusing on the service's behalf, and from outside it is indistinguishable from a client whose
+credentials are wrong — which is how a deployment gets reported as live while no client can reach
+it. **This was found on the live deployment**: the service carried no IAM binding at all, so every
+external request was answered 403. The fix is one command:
+
+```bash
+gcloud run services add-iam-policy-binding tsdg-api --region=<REGION> \
+  --member=allUsers --role=roles/run.invoker
+```
 
 **The environment is a file, and the deploy is one line, because of what the obvious form does.**
 A pasted block of a dozen `--set-env-vars` flags joined by backslashes loses a backslash the way
