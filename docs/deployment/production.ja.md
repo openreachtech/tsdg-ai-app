@@ -489,6 +489,25 @@ npx sequelize-cli db:seed:all --seeders-path sequelize/seeders/master
 
 **前提。** 1.4 と、実行する場所から Redis に到達できること。
 
+**Cloud Shell は Redis に到達できない。そしてそれがこの手順の難しさのすべてである。** Memorystore は VPC 内の private アドレスを持ち、Cloud Shell はその外にいる。下のコマンドを読み、ハングするのを見て、そのまま先へ進んだ運用者はこの手順を飛ばしたことになる — 実際にそうなった。症状は、他のすべてが健全に見えるなかで、ワーカーが起動のたびに `declared job schedules are not registered in Redis` を吐き続けることであった。**代わりに、VPC の内側でジョブとして実行する：**
+
+```bash
+gcloud run jobs create tsdg-schedulers \
+  --image=<REGION>-docker.pkg.dev/<PROJECT_ID>/<AR_REPO>/tsdg-ai-backend:<TAG> \
+  --region=<REGION> \
+  --service-account=tsdg-worker@<PROJECT_ID>.iam.gserviceaccount.com \
+  --network=<VPC_NETWORK> --subnet=<VPC_SUBNET> --vpc-egress=private-ranges-only \
+  --command=node --args=scripts/startJobSchedulers.js \
+  --max-retries=0 --task-timeout=300 \
+  --set-env-vars=NODE_ENV=production,REDIS_HOST=<REDIS_HOST>,REDIS_PORT=6379
+
+gcloud run jobs execute tsdg-schedulers --region=<REGION> --wait
+```
+
+**このジョブは残しておくこと。** このデプロイで Redis に到達してスケジュールを登録できるのはこれだけであり、したがって Redis が flush または置き換えられた後に再登録する手段も、cron 式の変更を反映する手段も、これである。
+
+Redis に**到達できる**場所 — VPC 内の VM、あるいは VPN で VPC に入ったラップトップ — からは、直接の形も使える：
+
 ```bash
 export REDIS_HOST=<REDIS_HOST> REDIS_PORT=6379 REDIS_PASSWORD=''
 npm run schedulers:start
@@ -550,6 +569,8 @@ Registered.
 **ここでスタブが応答するのは、ここだけの話である。** 新規インストールは設計上スタブに結び付いており、この手順は数分だけそのままにしておく理由そのものである。署名、データベース、キュー、ワーカー、メディア取得、署名付きコールバックを、**デプロイの外側を一切介さずに**動かす。これが通って 1.16 が失敗すれば、原因は提供者か鍵であり、考えるまでもなくそう分かる。いきなり 1.16 に進むと、あらゆる失敗が曖昧になり、経路を証明するために費用と顧客の写真を使うことになる。
 
 **これは最終状態ではない。** Part I が完了するのは 1.16 であって、ここではない。
+
+**この手順を飛ばすことが、中身が何も動かないデプロイを「稼働中」と呼ばせる経路であり、これは仮定の話ではない。** このプロジェクトでは 1.11、1.13、1.14 がいずれも飛ばされ、さらに 1.6 のシークレットがデータベースのユーザと一致していなかった。そして 4 つとも外からは見えなかった：リビジョンは ready、ログは静か、サービスは認証の無いリクエストを設計どおりに拒否していた。署名付きのリクエストだけが、そのすべて — 署名、クライアントの行、スキーマ、キュー、ワーカー、コールバック — を横断する。それを一度も流していない go-live は、壊れようのない部分だけを検査し、壊れ得る部分を一つも検査していない。
 
 **前提。** 1.9 から 1.14 まで。
 

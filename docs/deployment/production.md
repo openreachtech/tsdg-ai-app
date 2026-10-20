@@ -604,6 +604,32 @@ fires — which surfaces weeks later as data §19 said would be gone.
 
 **Preconditions.** 1.4, and Redis reachable from where you run this.
 
+**Cloud Shell cannot reach Redis, and that is the whole difficulty of this step.** Memorystore
+holds a private address inside the VPC; Cloud Shell sits outside it. An operator who reads the
+command below, finds it hangs, and moves on has skipped the step — which is what happened here, and
+the symptom was the worker logging `declared job schedules are not registered in Redis` at every
+boot while everything else looked healthy. **Run it as a job inside the VPC instead:**
+
+```bash
+gcloud run jobs create tsdg-schedulers \
+  --image=<REGION>-docker.pkg.dev/<PROJECT_ID>/<AR_REPO>/tsdg-ai-backend:<TAG> \
+  --region=<REGION> \
+  --service-account=tsdg-worker@<PROJECT_ID>.iam.gserviceaccount.com \
+  --network=<VPC_NETWORK> --subnet=<VPC_SUBNET> --vpc-egress=private-ranges-only \
+  --command=node --args=scripts/startJobSchedulers.js \
+  --max-retries=0 --task-timeout=300 \
+  --set-env-vars=NODE_ENV=production,REDIS_HOST=<REDIS_HOST>,REDIS_PORT=6379
+
+gcloud run jobs execute tsdg-schedulers --region=<REGION> --wait
+```
+
+**Keep the job.** It is the only thing in this deployment that can reach Redis to register a
+schedule, so it is also how a schedule is re-registered after Redis is flushed or replaced, and how
+a changed cron expression is applied.
+
+Where Redis *is* reachable — a VM inside the VPC, or a laptop on a VPN into it — the direct form
+still works:
+
 ```bash
 export REDIS_HOST=<REDIS_HOST> REDIS_PORT=6379 REDIS_PASSWORD=''
 npm run schedulers:start
@@ -688,6 +714,14 @@ and you know that without having to work it out. Going straight to 1.16 makes ev
 ambiguous, and spends money and customer photographs proving plumbing.
 
 **This is not the end state.** Part I is finished at 1.16, not here.
+
+**Skipping this step is how a deployment gets called live while nothing in it works, and it is not
+hypothetical.** On this project 1.11, 1.13 and 1.14 were all skipped and the secret of 1.6 did not
+match the database user, and none of the four was visible from outside: the revisions were ready,
+the logs were quiet, and the service answered every unauthenticated request exactly as designed. A
+signed request is the only thing that crosses all of it — signature, client row, schema, queue,
+worker, callback — so a go-live that has not run one has tested the parts that cannot fail and
+none of the parts that can.
 
 **Preconditions.** 1.9 through 1.14.
 
